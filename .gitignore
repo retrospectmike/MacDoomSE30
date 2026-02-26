@@ -1,0 +1,26 @@
+# Build output
+build/
+*.bin
+*.APPL
+*.dsk
+*.ad
+*.code.bin
+
+# Retro68 toolchain (large, not project-specific)
+Retro68/
+Retro68-build/
+
+# Linux Doom reference source (upstream, not ours)
+linuxdoom-src/
+
+# Hello world test project
+hello_world/
+
+# Emulator runtime files
+emulator/shared/DoomSE30.bin
+emulator/serial_debug.txt
+emulator/disks/backups/
+
+# macOS
+.DS_Store
+**/.DS_Store

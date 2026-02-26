@@ -1,0 +1,54 @@
+# Basilisk II configuration for doom_se30 project
+# Emulates SE/30-like 68030 Mac with System 7.5
+# Mac IIci ROM is the closest to SE/30 behavior available
+
+disk /Applications/Basilisk2/BlueSCSI_HDs/Backup hdas/HD00_512_Doom.dsk
+
+# Shared folder — built binaries go here, appear as a volume in the Mac
+extfs /Users/michaeldiaz/develop/doom_se30/emulator/shared
+
+# 512x342 monochrome — exact SE/30 resolution
+# Try mono mode first; fall back to win/512/342 if mono isn't supported
+screen win/512/342
+
+# Serial port A mapped to a file for debug output capture
+seriala /Users/michaeldiaz/develop/doom_se30/emulator/serial_debug.txt
+
+# ROM: Mac IIci — best available match for SE/30-class 68030 emulation
+rom /Applications/Basilisk2/368CADFE - Mac IIci.ROM
+
+# 64MB RAM — matches our target SE/30 configuration
+ramsize 67108864
+
+# 68030 CPU, FPU enabled
+cpu 3
+fpu true
+
+# Mac IIci model ID
+modelid 5
+
+# No JIT (we're targeting 68k accuracy)
+jit false
+jitfpu false
+
+# Other settings
+frameskip 0
+bootdrive 0
+bootdriver 0
+ether slirp
+udptunnel false
+udpport 6066
+nocdrom false
+nosound false
+noclipconversion false
+nogui false
+jitdebug false
+jitcachesize 8192
+jitlazyflush true
+jitinline true
+keyboardtype 5
+keycodes false
+mousewheelmode 1
+mousewheellines 3
+ignoresegv true
+idlewait true
