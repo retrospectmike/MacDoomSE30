@@ -95,3 +95,11 @@ add_application(DoomSE30
     ${DOOM_SOURCES}
     CONSOLE
 )
+
+# d_main.c is startup/loop code, not a hot path.
+# -O3 -fomit-frame-pointer on a large translation unit causes GCC 68k
+# to miscalculate stack frames (known issue), crashing in IdentifyVersion.
+# -O2 with frame pointer present is the safe compromise.
+set_source_files_properties(d_main.c PROPERTIES
+    COMPILE_FLAGS "-O2 -fno-omit-frame-pointer"
+)

@@ -118,6 +118,11 @@ int main(void)
         doom_log("WAD picker cancelled — trying app folder\n");
     }
 
+    /* Open the console window NOW with a loading message so the user knows
+     * the app is alive during the ~15 second WAD load + init sequence.
+     * The first printf() call opens the Retro68 ConsoleWindow. */
+    printf("Doom SE/30: loading WAD file, please wait...\n");
+
     /* Set up Doom's command-line argument globals */
     myargc = 1;
     myargv = mac_argv;

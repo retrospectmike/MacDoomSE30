@@ -12,6 +12,7 @@
 #include "doomstat.h"
 #include "d_event.h"
 #include "d_main.h"
+#include "i_video.h"
 
 /* Mac virtual keycode -> Doom KEY_ mapping */
 static int MacKeyToDoom(int macKey)
@@ -112,6 +113,26 @@ static const struct { int macKey; int doomKey; } kKeyTable[] = {
     {-1, 0}
 };
 
+/* Dither hotkeys — raw Mac key codes, handled before Doom's event loop.
+ *
+ *  [ (0x21)  game_black  -5      ] (0x1E)  game_black  +5
+ *  ; (0x29)  game_white  -5      ' (0x27)  game_white  +5
+ *  O (0x1F)  gamma       -0.05   P (0x23)  gamma       +0.05
+ *  L (0x25)  toggle no_lighting
+ *  K (0x28)  save doom_dither.cfg
+ */
+static const struct { int macKey; int param; int delta; } kDitherKeys[] = {
+    { 0x21, 1, -1 },   /* [  → game_black -5  */
+    { 0x1E, 1, +1 },   /* ]  → game_black +5  */
+    { 0x29, 2, -1 },   /* ;  → game_white -5  */
+    { 0x27, 2, +1 },   /* '  → game_white +5  */
+    { 0x1F, 0, -1 },   /* O  → gamma -0.05    */
+    { 0x23, 0, +1 },   /* P  → gamma +0.05    */
+    { 0x25, 3,  0 },   /* L  → toggle lighting */
+    { 0x28, 4,  0 },   /* K  → save config     */
+    { -1, 0, 0 }
+};
+
 void I_PollMacInput(void)
 {
     /*
@@ -127,6 +148,18 @@ void I_PollMacInput(void)
     int                  i;
 
     GetKeys((UInt32 *)curr);
+
+    /* Dither hotkeys: fire once on key-down, never sent to Doom event loop */
+    {
+        int d;
+        for (d = 0; kDitherKeys[d].macKey >= 0; d++) {
+            int k       = kDitherKeys[d].macKey;
+            int was_dn  = (prev[k >> 3] >> (k & 7)) & 1;
+            int is_dn   = (curr[k >> 3] >> (k & 7)) & 1;
+            if (is_dn && !was_dn)
+                I_AdjustDither(kDitherKeys[d].param, kDitherKeys[d].delta);
+        }
+    }
 
     for (i = 0; kKeyTable[i].macKey >= 0; i++) {
         int k        = kKeyTable[i].macKey;

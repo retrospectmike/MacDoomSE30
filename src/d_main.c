@@ -190,6 +190,21 @@ extern  boolean setsizeneeded;
 extern  int             showMessages;
 void R_ExecuteSetViewSize (void);
 
+/* Profiling accumulators (Mac 60Hz ticks), reset every 35 game tics.
+ *   logic  = TryRunTics (game simulation + AI)
+ *   render = R_RenderPlayerView total
+ *   blit   = I_FinishUpdate (screens[0] → 1-bit framebuffer)
+ *   sound  = S_UpdateSounds + I_UpdateSound + I_SubmitSound
+ *   disp   = D_Display total; (disp - render - blit) = HUD/ST/border
+ * 60 ticks = 1 real second, so values read directly as % of wall clock.
+ * Render sub-profile exported from r_main.c: */
+extern long prof_r_setup, prof_r_bsp, prof_r_planes, prof_r_masked;
+static long prof_logic  = 0;
+static long prof_render = 0;
+static long prof_blit   = 0;
+static long prof_sound  = 0;
+static long prof_disp   = 0;
+
 void D_Display (void)
 {
     static  boolean		viewactivestate = false;
@@ -222,6 +237,12 @@ void D_Display (void)
     // save the current screen if about to wipe
     if (gamestate != wipegamestate)
     {
+	/* Debug: log every state transition that triggers a wipe.
+	 * Helps trace the ghost-DOOM-logo bug (extra logo frames during
+	 * demo slideshow transitions). */
+	{ extern int demosequence;
+	  doom_log("D_Display: wipe triggered gs=%d->wgs=%d demosequence=%d\r",
+		   (int)gamestate, (int)wipegamestate, demosequence); }
 	wipe = true;
 	wipe_StartScreen(0, 0, SCREENWIDTH, SCREENHEIGHT);
     }
@@ -265,11 +286,19 @@ void D_Display (void)
     
     // draw the view directly
     if (gamestate == GS_LEVEL && !automapactive && gametic)
+    {
+	long _rt = I_GetMacTick();
 	R_RenderPlayerView (&players[displayplayer]);
+	prof_render += I_GetMacTick() - _rt;
+    }
 
+    /* Clear HU overlay flag before HU_Drawer so I_FinishUpdate knows whether
+     * any message text was drawn into the screens[0] view area this frame.
+     * HU_Drawer (hu_stuff.c) sets it back to true if a message is visible. */
+    { extern boolean hu_overlay_active; hu_overlay_active = false; }
     if (gamestate == GS_LEVEL && gametic)
 	HU_Drawer ();
-    
+
     // clean up border stuff
     if (gamestate != oldgamestate && gamestate != GS_LEVEL)
 	I_SetPalette (W_CacheLumpName ("PLAYPAL",PU_CACHE));
@@ -279,6 +308,7 @@ void D_Display (void)
     {
 	viewactivestate = false;        // view was not active
 	R_FillBackScreen ();    // draw the pattern into the back screen
+	{ extern int border_needs_blit; border_needs_blit = 1; }
     }
 
     // see if the border needs to be updated to the screen
@@ -290,6 +320,7 @@ void D_Display (void)
 	{
 	    R_DrawViewBorder ();    // erase old menu stuff
 	    borderdrawcount--;
+	    { extern int border_needs_blit; border_needs_blit = 1; }
 	}
 
     }
@@ -312,10 +343,12 @@ void D_Display (void)
 
 
     // menus go directly to the screen
-    /* Redirect M_Drawer to menu_overlay_buf so menu pixels are cleanly
-     * separated from border/status bar content in screens[0].
+    /* Redirect M_Drawer to menu_overlay_buf only when the menu is actually
+     * active.  Skipping the 64KB memset + M_Drawer call every frame when no
+     * menu is open saves ~0.5-1 fps on the SE/30.
      * screens[1] is Doom's border tile cache — do NOT use it here.
      * I_FinishUpdate applies menu_overlay_buf as solid white over the full screen. */
+    if (menuactive)
     {
 	extern byte *menu_overlay_buf;
 	byte *saved = screens[0];
@@ -330,7 +363,9 @@ void D_Display (void)
     // normal update
     if (!wipe)
     {
+	long _bt = I_GetMacTick();
 	I_FinishUpdate ();              // page flip or blit buffer
+	prof_blit += I_GetMacTick() - _bt;
 	return;
     }
     
@@ -356,7 +391,7 @@ void D_Display (void)
 	done = wipe_ScreenWipe(wipe_Melt
 			       , 0, 0, SCREENWIDTH, SCREENHEIGHT, tics);
 	I_UpdateNoBlit ();
-	{ extern byte *menu_overlay_buf; byte *saved = screens[0]; memset(menu_overlay_buf, 0, SCREENWIDTH * SCREENHEIGHT); screens[0] = menu_overlay_buf; M_Drawer (); screens[0] = saved; }  // menu overlay
+	if (menuactive) { extern byte *menu_overlay_buf; byte *saved = screens[0]; memset(menu_overlay_buf, 0, SCREENWIDTH * SCREENHEIGHT); screens[0] = menu_overlay_buf; M_Drawer (); screens[0] = saved; }  // menu overlay
 	I_FinishUpdate ();                      // page flip or blit buffer
     } while (!done);
 
@@ -372,9 +407,12 @@ extern  boolean         demorecording;
 
 void D_DoomLoop (void)
 {
-    /* Frame timing counters: display frames per 35 game tics (~1 second) */
-    int  ft_frames    = 0;
-    int  ft_last_tic  = 0;
+    /* Frame timing: real wall-clock FPS using TickCount (60 Hz).
+     * ft_wall_start is the TickCount at the start of each measurement window.
+     * Window still fires every 35 game tics so timing data stays comparable. */
+    int  ft_frames     = 0;
+    int  ft_last_tic   = 0;
+    long ft_wall_start = I_GetMacTick();
 
     if (demorecording)
 	G_BeginRecording ();
@@ -395,46 +433,80 @@ void D_DoomLoop (void)
 	I_StartFrame ();
 
 	// process one or more tics
-	if (singletics)
+	/* --- game logic --- */
 	{
-	    I_StartTic ();
-	    D_ProcessEvents ();
-	    G_BuildTiccmd (&netcmds[consoleplayer][maketic%BACKUPTICS]);
-	    if (advancedemo)
-		D_DoAdvanceDemo ();
-	    M_Ticker ();
-	    G_Ticker ();
-	    gametic++;
-	    maketic++;
-	}
-	else
-	{
-	    TryRunTics (); // will run at least one tic
+	    long _t = I_GetMacTick();
+	    if (singletics)
+	    {
+		I_StartTic ();
+		D_ProcessEvents ();
+		G_BuildTiccmd (&netcmds[consoleplayer][maketic%BACKUPTICS]);
+		if (advancedemo)
+		    D_DoAdvanceDemo ();
+		M_Ticker ();
+		G_Ticker ();
+		gametic++;
+		maketic++;
+	    }
+	    else
+	    {
+		TryRunTics (); // will run at least one tic
+	    }
+	    prof_logic += I_GetMacTick() - _t;
 	}
 
-	S_UpdateSounds (players[consoleplayer].mo);// move positional sounds
+	/* --- sound update --- */
+	{
+	    long _t = I_GetMacTick();
+	    S_UpdateSounds (players[consoleplayer].mo);
+#ifndef SNDSERV
+	    I_UpdateSound();
+#endif
+#ifndef SNDINTR
+	    I_SubmitSound();
+#endif
+	    prof_sound += I_GetMacTick() - _t;
+	}
 
-	// Update display, next frame, with current state.
-	D_Display ();
+	/* --- display --- */
+	{
+	    long _t = I_GetMacTick();
+	    D_Display ();
+	    prof_disp += I_GetMacTick() - _t;
+	}
 
 	ft_frames++;
 
-#ifndef SNDSERV
-	// Sound mixing for the buffer is snychronous.
-	I_UpdateSound();
-#endif
-	// Synchronous sound output is explicitly called.
-#ifndef SNDINTR
-	// Update sound output.
-	I_SubmitSound();
-#endif
-
-	/* Log display frame rate every 35 game tics (~1 second) */
+	/* Log real wall-clock FPS every 35 game tics.
+	 * elapsed = real 60Hz ticks in this window; realfps*10 avoids float.
+	 * All component values are 60Hz ticks accumulated over the window.
+	 * hud = D_Display minus render and blit (ST_Drawer, HU_Drawer, border). */
 	if (gametic - ft_last_tic >= 35)
 	{
-	    doom_log("FPS: %d display frames per 35 tics\r", ft_frames);
-	    ft_frames   = 0;
-	    ft_last_tic = gametic;
+	    long elapsed = I_GetMacTick() - ft_wall_start;
+	    if (elapsed < 1) elapsed = 1;
+	    /* realfps*10 = frames * 600 / elapsed  (avoids float, 1 decimal) */
+	    long realfps10 = (long)ft_frames * 600L / elapsed;
+	    doom_log("FPS:%ld.%ld (gtic:%d) logic=%ld render=%ld blit=%ld hud=%ld sound=%ld\r",
+		     realfps10/10, realfps10%10,
+		     ft_frames,
+		     prof_logic, prof_render, prof_blit,
+		     prof_disp - prof_render - prof_blit,
+		     prof_sound);
+	    doom_log("  render: setup=%ld bsp=%ld planes=%ld masked=%ld\r",
+		     prof_r_setup, prof_r_bsp, prof_r_planes, prof_r_masked);
+	    ft_frames     = 0;
+	    ft_last_tic   = gametic;
+	    ft_wall_start = I_GetMacTick();
+	    prof_logic    = 0;
+	    prof_render   = 0;
+	    prof_blit     = 0;
+	    prof_sound    = 0;
+	    prof_disp     = 0;
+	    prof_r_setup  = 0;
+	    prof_r_bsp    = 0;
+	    prof_r_planes = 0;
+	    prof_r_masked = 0;
 	}
     }
 }
@@ -496,7 +568,10 @@ void D_AdvanceDemo (void)
       demosequence = (demosequence+1)%7;
     else
       demosequence = (demosequence+1)%6;
-    
+
+    doom_log("D_DoAdvanceDemo: demosequence=%d gamestate=%d\r",
+	     demosequence, (int)gamestate);
+
     switch (demosequence)
     {
       case 0:
@@ -611,28 +686,33 @@ void IdentifyVersion (void)
     char*	plutoniawad;
     char*	tntwad;
 
+    doom_log("IV: entered\r");
 #ifdef NORMALUNIX
     char *home;
     char *doomwaddir;
+    doom_log("IV: calling getenv\r");
     doomwaddir = getenv("DOOMWADDIR");
     if (!doomwaddir)
 	doomwaddir = ".";
+    doom_log("IV: doomwaddir=%s\r", doomwaddir);
 
     // Commercial.
     doom2wad = malloc(strlen(doomwaddir)+1+9+1);
     sprintf(doom2wad, "%s/doom2.wad", doomwaddir);
+    doom_log("IV: doom2wad=%s\r", doom2wad);
 
     // Retail.
     doomuwad = malloc(strlen(doomwaddir)+1+8+1);
     sprintf(doomuwad, "%s/doomu.wad", doomwaddir);
-    
+
     // Registered.
     doomwad = malloc(strlen(doomwaddir)+1+8+1);
     sprintf(doomwad, "%s/doom.wad", doomwaddir);
-    
+
     // Shareware.
     doom1wad = malloc(strlen(doomwaddir)+1+9+1);
     sprintf(doom1wad, "%s/doom1.wad", doomwaddir);
+    doom_log("IV: doom1wad=%s\r", doom1wad);
 
      // Bug, dear Shawn.
     // Insufficient malloc, caused spurious realloc errors.
@@ -642,18 +722,19 @@ void IdentifyVersion (void)
     tntwad = malloc(strlen(doomwaddir)+1+9+1);
     sprintf(tntwad, "%s/tnt.wad", doomwaddir);
 
-
     // French stuff.
     doom2fwad = malloc(strlen(doomwaddir)+1+10+1);
     sprintf(doom2fwad, "%s/doom2f.wad", doomwaddir);
 
+    doom_log("IV: all mallocs done\r");
     home = getenv("HOME");
     if (!home)
       strcpy(basedefault, "doom.cfg");  /* Mac: use current dir */
     else
       sprintf(basedefault, "%s/.doomrc", home);
+    doom_log("IV: basedefault=%s\r", basedefault);
 #endif
-
+    doom_log("IV: before M_CheckParm\r");
     if (M_CheckParm ("-shdev"))
     {
 	gamemode = shareware;
@@ -695,17 +776,17 @@ void IdentifyVersion (void)
 	return;
     }
 
+    doom_log("IV: access doom2fwad\r");
     if ( !access (doom2fwad,R_OK) )
     {
 	gamemode = commercial;
-	// C'est ridicule!
-	// Let's handle languages in config files, okay?
 	language = french;
 	printf("French version\n");
 	D_AddFile (doom2fwad);
 	return;
     }
 
+    doom_log("IV: access doom2wad\r");
     if ( !access (doom2wad,R_OK) )
     {
 	gamemode = commercial;
@@ -713,6 +794,7 @@ void IdentifyVersion (void)
 	return;
     }
 
+    doom_log("IV: access plutoniawad\r");
     if ( !access (plutoniawad, R_OK ) )
     {
       gamemode = commercial;
@@ -720,6 +802,7 @@ void IdentifyVersion (void)
       return;
     }
 
+    doom_log("IV: access tntwad\r");
     if ( !access ( tntwad, R_OK ) )
     {
       gamemode = commercial;
@@ -727,6 +810,7 @@ void IdentifyVersion (void)
       return;
     }
 
+    doom_log("IV: access doomuwad\r");
     if ( !access (doomuwad,R_OK) )
     {
       gamemode = retail;
@@ -734,6 +818,7 @@ void IdentifyVersion (void)
       return;
     }
 
+    doom_log("IV: access doomwad\r");
     if ( !access (doomwad,R_OK) )
     {
       gamemode = registered;
@@ -741,6 +826,7 @@ void IdentifyVersion (void)
       return;
     }
 
+    doom_log("IV: access doom1wad\r");
     if ( !access (doom1wad,R_OK) )
     {
       gamemode = shareware;
@@ -838,13 +924,16 @@ void D_DoomMain (void)
     int             p;
     char                    file[256];
 
+    doom_log("D_DoomMain: start\r");
     FindResponseFile ();
-	
+    doom_log("D_DoomMain: FindResponseFile done\r");
+
     IdentifyVersion ();
-	
+    doom_log("D_DoomMain: IdentifyVersion done, gamemode=%d\r", (int)gamemode);
+
     setbuf (stdout, NULL);
     modifiedgame = false;
-	
+
     nomonsters = M_CheckParm ("-nomonsters");
     respawnparm = M_CheckParm ("-respawn");
     fastparm = M_CheckParm ("-fast");
@@ -854,6 +943,7 @@ void D_DoomMain (void)
     else if (M_CheckParm ("-deathmatch"))
 	deathmatch = 1;
 
+    doom_log("D_DoomMain: entering switch(gamemode)\r");
     switch ( gamemode )
     {
       case retail:
@@ -1048,8 +1138,10 @@ void D_DoomMain (void)
     }
     
     // init subsystems
+    doom_log("D_DoomMain: before V_Init\r");
     printf ("V_Init: allocate screens.\n");
     V_Init ();
+    doom_log("D_DoomMain: V_Init done\r");
 
     printf ("M_LoadDefaults: Load system defaults.\n");
     doom_log ("CHKPT: entering M_LoadDefaults\n");

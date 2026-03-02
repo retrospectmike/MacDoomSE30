@@ -44,6 +44,12 @@ byte*	I_ZoneBase (int *size);
 // returns current time in tics.
 int I_GetTime (void);
 
+// Returns the raw Mac 60Hz TickCount — safe to call from any module.
+// Use this instead of calling TickCount() directly: that function is
+// declared 'pascal ULONGINT' which can affect register-save code
+// generation for the entire translation unit on 68k.
+long I_GetMacTick (void);
+
 
 //
 // Called by D_DoomLoop,

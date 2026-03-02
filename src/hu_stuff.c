@@ -485,6 +485,13 @@ void HU_Start(void)
 
 void HU_Drawer(void)
 {
+    /* Inform I_FinishUpdate whether text will appear in the view area.
+     * When true, it scans screens[0] for overlay pixels.
+     * When false (common case), that expensive scan is skipped entirely. */
+    if (message_on || chat_on) {
+        extern boolean hu_overlay_active;
+        hu_overlay_active = true;
+    }
 
     HUlib_drawSText(&w_message);
     HUlib_drawIText(&w_chat);

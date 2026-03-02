@@ -34,7 +34,15 @@ static const char rcsid[] = "$Id: r_main.c,v 1.5 1997/02/03 22:45:12 b1 Exp $";
 
 
 #include "doomdef.h"
+#include "doomstat.h"
 #include "d_net.h"
+#include "i_system.h"   /* I_GetMacTick */
+
+/* Render sub-profiling accumulators (60Hz ticks, reset by d_main.c). */
+long prof_r_setup   = 0;   /* memset + R_SetupFrame + R_ClearXxx */
+long prof_r_bsp     = 0;   /* R_RenderBSPNode */
+long prof_r_planes  = 0;   /* R_DrawPlanes */
+long prof_r_masked  = 0;   /* R_DrawMasked */
 
 #include "m_bbox.h"
 
@@ -701,20 +709,45 @@ void R_ExecuteSetViewSize (void)
     centeryfrac = centery<<FRACBITS;
     projection = centerxfrac;
 
-    if (!detailshift)
+    /* When the menu is active, fall back to 8-bit renderers so the entire
+     * frame is composited into screens[0] first, then blitted to the
+     * framebuffer in one pass.  This eliminates the menu overlay flicker
+     * caused by the CRT scanning over partially-rendered direct-draw frames. */
     {
-	/* Phase 4: use direct 1-bit renderers for 68030 SE/30 performance */
-	colfunc    = basecolfunc = R_DrawColumn_Mono;
-	fuzzcolfunc  = R_DrawFuzzColumn_Mono;
-	transcolfunc = R_DrawTranslatedColumn_Mono;
-	spanfunc     = R_DrawSpan_Mono;
-    }
-    else
-    {
-	colfunc    = basecolfunc = R_DrawColumnLow_Mono;
-	fuzzcolfunc  = R_DrawFuzzColumn_Mono;
-	transcolfunc = R_DrawTranslatedColumn_Mono;
-	spanfunc     = R_DrawSpanLow_Mono;
+	extern boolean menuactive;
+	if (menuactive)
+	{
+	    /* 8-bit path: renders to screens[0]; I_FinishUpdate does full blit */
+	    if (!detailshift)
+	    {
+		colfunc    = basecolfunc = R_DrawColumn;
+		fuzzcolfunc  = R_DrawFuzzColumn;
+		transcolfunc = R_DrawTranslatedColumn;
+		spanfunc     = R_DrawSpan;
+	    }
+	    else
+	    {
+		colfunc    = basecolfunc = R_DrawColumnLow;
+		fuzzcolfunc  = R_DrawFuzzColumn;
+		transcolfunc = R_DrawTranslatedColumn;
+		spanfunc     = R_DrawSpanLow;
+	    }
+	}
+	else if (!detailshift)
+	{
+	    /* Phase 4: use direct 1-bit renderers for 68030 SE/30 performance */
+	    colfunc    = basecolfunc = R_DrawColumn_Mono;
+	    fuzzcolfunc  = R_DrawFuzzColumn_Mono;
+	    transcolfunc = R_DrawTranslatedColumn_Mono;
+	    spanfunc     = R_DrawSpan_Mono;
+	}
+	else
+	{
+	    colfunc    = basecolfunc = R_DrawColumnLow_Mono;
+	    fuzzcolfunc  = R_DrawFuzzColumn_Mono;
+	    transcolfunc = R_DrawTranslatedColumn_Mono;
+	    spanfunc     = R_DrawSpanLow_Mono;
+	}
     }
 
     R_InitBuffer (scaledviewwidth, viewheight);
@@ -874,14 +907,21 @@ void R_RenderPlayerView (player_t* player)
 {
     int y;
 
+    { long _t = I_GetMacTick();
     /* Phase 4: clear the screens[0] view area to 0 before rendering.
      * The mono renderers write directly to the 1-bit framebuffer and do not
      * touch screens[0].  I_FinishUpdate treats non-zero screens[0] view pixels
      * as HUD/menu overlays and blits them on top of the direct render.
-     * Pre-clearing ensures only genuine HUD content (non-zero) gets overlaid. */
-    for (y = 0; y < viewheight; y++)
-	memset(screens[0] + (viewwindowy + y) * SCREENWIDTH + viewwindowx,
-	       0, scaledviewwidth);
+     * Pre-clearing ensures only genuine HUD content (non-zero) gets overlaid.
+     * Skip when menuactive: the 8-bit renderers need screens[0] intact, and
+     * I_FinishUpdate will do a full blit (no selective overlay) anyway. */
+    {
+	extern boolean menuactive;
+	if (!menuactive)
+	    for (y = 0; y < viewheight; y++)
+		memset(screens[0] + (viewwindowy + y) * SCREENWIDTH + viewwindowx,
+		       0, scaledviewwidth);
+    }
 
     R_SetupFrame (player);
 
@@ -890,23 +930,22 @@ void R_RenderPlayerView (player_t* player)
     R_ClearDrawSegs ();
     R_ClearPlanes ();
     R_ClearSprites ();
-    
-    // check for new console commands.
-    NetUpdate ();
+    if (netgame) NetUpdate ();
+    prof_r_setup += I_GetMacTick() - _t; }
 
+    { long _t = I_GetMacTick();
     // The head node is the last node output.
     R_RenderBSPNode (numnodes-1);
-    
-    // Check for new console commands.
-    NetUpdate ();
-    
-    R_DrawPlanes ();
-    
-    // Check for new console commands.
-    NetUpdate ();
-    
-    R_DrawMasked ();
+    if (netgame) NetUpdate ();
+    prof_r_bsp += I_GetMacTick() - _t; }
 
-    // Check for new console commands.
-    NetUpdate ();				
+    { long _t = I_GetMacTick();
+    R_DrawPlanes ();
+    if (netgame) NetUpdate ();
+    prof_r_planes += I_GetMacTick() - _t; }
+
+    { long _t = I_GetMacTick();
+    R_DrawMasked ();
+    if (netgame) NetUpdate ();
+    prof_r_masked += I_GetMacTick() - _t; }
 }

@@ -19,8 +19,14 @@
 #include <Files.h>
 
 /*
- * Debug log — all printf output goes to both the console window
- * AND this file, so we can read it even if the app crashes/exits.
+ * Debug log — output goes to the log FILE only.
+ *
+ * printf() to the Retro68 console is intentionally disabled:
+ * when the console window accumulates enough text to scroll, Mac OS
+ * ScrollRect copies a region of the screen bitmap upward.  That region
+ * overlaps with our direct-framebuffer game rendering, dragging game
+ * pixels into the console area and creating ghost images.
+ * All diagnostic output is in doom_log.txt; open it after each run.
  */
 static FILE *g_logfile = NULL;
 
@@ -33,9 +39,6 @@ void doom_log(const char *fmt, ...)
     va_start(ap, fmt);
     vsnprintf(buf, sizeof(buf), fmt, ap);
     va_end(ap);
-
-    /* Console window: \n works as-is in Retro68's console layer */
-    printf("%s", buf);
 
     if (g_logfile) {
         /* Classic Mac OS text files use \r (0x0D) line endings.
@@ -126,6 +129,11 @@ int I_GetTime(void)
         basetime = now;
     /* Convert from 60Hz Mac ticks to 35Hz Doom tics */
     return (int)(((now - basetime) * TICRATE) / 60);
+}
+
+long I_GetMacTick(void)
+{
+    return (long)TickCount();
 }
 
 void I_Init(void)

@@ -69,6 +69,11 @@ fixed_t		rw_offset;
 fixed_t		rw_distance;
 fixed_t		rw_scale;
 fixed_t		rw_scalestep;
+/* Precomputed iscale for linear interpolation across wall columns.
+ * Replaces per-column: dc_iscale = 0xffffffffu / rw_scale (~150 cycles each)
+ * with: dc_iscale = rw_iscale; rw_iscale += rw_iscalestep  (~2 cycles each). */
+static fixed_t  rw_iscale;
+static fixed_t  rw_iscalestep;
 fixed_t		rw_midtexturemid;
 fixed_t		rw_toptexturemid;
 fixed_t		rw_bottomtexturemid;
@@ -135,10 +140,22 @@ R_RenderMaskedSegRange
 
     maskedtexturecol = ds->maskedtexturecol;
 
-    rw_scalestep = ds->scalestep;		
+    rw_scalestep = ds->scalestep;
     spryscale = ds->scale1 + (x1 - ds->x1)*rw_scalestep;
     mfloorclip = ds->sprbottomclip;
     mceilingclip = ds->sprtopclip;
+
+    /* Precompute iscale linear interpolation for masked segment columns */
+    {
+	fixed_t mpr_iscale = 0xffffffffu / (unsigned)spryscale;
+	fixed_t mpr_iscalestep;
+	if (x2 > x1)
+	{
+	    fixed_t spryscale_end = ds->scale1 + (x2 - ds->x1)*rw_scalestep;
+	    mpr_iscalestep = (0xffffffffu / (unsigned)spryscale_end - mpr_iscale) / (x2 - x1);
+	}
+	else
+	    mpr_iscalestep = 0;
     
     // find positioning
     if (curline->linedef->flags & ML_DONTPEGBOTTOM)
@@ -173,20 +190,23 @@ R_RenderMaskedSegRange
 
 		dc_colormap = walllights[index];
 	    }
-			
+
 	    sprtopscreen = centeryfrac - FixedMul(dc_texturemid, spryscale);
-	    dc_iscale = 0xffffffffu / (unsigned)spryscale;
-	    
+	    /* Linear interpolation replaces per-column 32-bit divide */
+	    dc_iscale = mpr_iscale;
+
 	    // draw the texture
-	    col = (column_t *)( 
+	    col = (column_t *)(
 		(byte *)R_GetColumn(texnum,maskedtexturecol[dc_x]) -3);
-			
+
 	    R_DrawMaskedColumn (col);
 	    maskedtexturecol[dc_x] = MAXSHORT;
 	}
+	mpr_iscale += mpr_iscalestep;
 	spryscale += rw_scalestep;
     }
-	
+    } /* end mpr_iscale block */
+
 }
 
 
@@ -273,7 +293,9 @@ void R_RenderSegLoop (void)
 
 	    dc_colormap = walllights[index];
 	    dc_x = rw_x;
-	    dc_iscale = 0xffffffffu / (unsigned)rw_scale;
+	    /* Linear interpolation replaces per-column 32-bit divide */
+	    dc_iscale = rw_iscale;
+	    rw_iscale += rw_iscalestep;
 	}
 	
 	// draw the wall tiers
@@ -422,7 +444,7 @@ R_StoreWallRange
     if (stop > start )
     {
 	ds_p->scale2 = R_ScaleFromGlobalAngle (viewangle + xtoviewangle[stop]);
-	ds_p->scalestep = rw_scalestep = 
+	ds_p->scalestep = rw_scalestep =
 	    (ds_p->scale2 - rw_scale) / (stop-start);
     }
     else
@@ -436,14 +458,26 @@ R_StoreWallRange
 
 	    trx = curline->v1->x - viewx;
 	    try = curline->v1->y - viewy;
-			
-	    gxt = FixedMul(trx,viewcos); 
-	    gyt = -FixedMul(try,viewsin); 
+
+	    gxt = FixedMul(trx,viewcos);
+	    gyt = -FixedMul(try,viewsin);
 	    ds_p->scale1 = FixedDiv(projection, gxt-gyt)<<detailshift;
 	}
 #endif
 	ds_p->scale2 = ds_p->scale1;
     }
+
+    /* Precompute iscale for linear interpolation — avoids per-column 32-bit division.
+     * rw_scale advances linearly, so 1/scale interpolates accurately for normal walls.
+     * Two divisions here replaces N divisions in the inner loop (N = stop - start + 1). */
+    rw_iscale = 0xffffffffu / (unsigned)rw_scale;
+    if (stop > start)
+    {
+	fixed_t iscale2 = 0xffffffffu / (unsigned)ds_p->scale2;
+	rw_iscalestep = (iscale2 - rw_iscale) / (stop - start);
+    }
+    else
+	rw_iscalestep = 0;
     
     // calculate texture boundaries
     //  and decide if floor / ceiling marks are needed

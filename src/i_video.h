@@ -53,6 +53,16 @@ void I_ReadScreen (byte* scr);
 void I_BeginRead (void);
 void I_EndRead (void);
 
+/* Runtime dither parameter tuning */
+void I_AdjustDither    (int param, int delta);
+void I_SaveDitherConfig(void);
+void I_LoadDitherConfig(void);
+void I_BuildGammaCurve (void);
+void I_RebuildDitherPalette(void);
+
+/* 1 = force fullbright colormap (no sector lighting) */
+extern int no_lighting;
+
 
 
 #endif
