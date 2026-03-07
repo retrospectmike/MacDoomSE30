@@ -98,6 +98,8 @@ void I_Error (char *error, ...);
  * Uses \r line endings in the file so SimpleText can read it on
  * Classic Mac OS. */
 void doom_log (const char *fmt, ...);
+void doom_log_flush (void);  /* force HFS volume flush after critical log blocks */
+void I_MacBeep (int n);      /* play n short system beeps (detail-level feedback) */
 
 
 #endif

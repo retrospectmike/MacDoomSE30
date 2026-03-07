@@ -104,11 +104,15 @@ int			dc_yh;
 fixed_t			dc_iscale; 
 fixed_t			dc_texturemid;
 
-// first pixel in a column (possibly virtual) 
-byte*			dc_source;		
+// first pixel in a column (possibly virtual)
+byte*			dc_source;
 
-// just for profiling 
+// just for profiling
 int			dccount;
+
+/* Total pixels drawn by R_DrawColumn_Mono + R_DrawColumnLow_Mono per frame.
+ * Reset by d_main.c every 35 game tics. Useful for cycles/pixel analysis. */
+long			prof_r_pixels = 0;
 
 //
 // A column is a vertical slice/span from a wall texture that,
@@ -929,7 +933,7 @@ void R_DrawViewBorder (void)
 # define COLMONO_GRAY(_frac, _src, _cm, _gray)       \
     __asm__ ("move.l %1,%0\n\t"                        \
              "swap   %0\n\t"                           \
-             "and.w  #127,%0\n\t"                      \
+             "and.l  #127,%0\n\t"                      \
              "move.b (%2,%0.w),%0\n\t"                 \
              "move.b (%3,%0.w),%0"                     \
              : "=&d" (_gray)                           \
@@ -976,7 +980,6 @@ void R_DrawColumn_Mono(void)
 {
     int             count;
     unsigned char  *dst;
-    unsigned char   bit_set, bit_clr;
     fixed_t         frac, fracstep;
     int             fb_x;
     const byte     *mono_cm;
@@ -986,8 +989,6 @@ void R_DrawColumn_Mono(void)
         return;
 
     fb_x    = dc_x + viewwindowx + fb_mono_xoff;
-    bit_set = (unsigned char)(0x80 >> (fb_x & 7));
-    bit_clr = (unsigned char)(~bit_set);
     mono_cm = no_lighting ? mono_colormaps
                           : mono_colormaps + (dc_colormap - colormaps);
 
@@ -1000,9 +1001,9 @@ void R_DrawColumn_Mono(void)
         if ((start_y + viewwindowy) & 1) { start_y++; count--; }
         if (count < 0) return;
 
-        bayer_y0 = (start_y + viewwindowy) & 3;   /* 0 or 2 */
+        bayer_y0 = ((start_y + viewwindowy) >> 1) & 3;   /* cycles all 4 rows over 8 screen rows */
         th_a = bayer4x4[bayer_y0][fb_x & 3];
-        th_b = bayer4x4[(bayer_y0 + 2) & 3][fb_x & 3];
+        th_b = bayer4x4[(bayer_y0 + 1) & 3][fb_x & 3];
 
         dst      = (unsigned char *)fb_mono_base
                    + (start_y + viewwindowy + fb_mono_yoff) * fb_mono_rowbytes
@@ -1010,6 +1011,7 @@ void R_DrawColumn_Mono(void)
         fracstep = dc_iscale << 1;
         frac     = dc_texturemid + (start_y - centery) * dc_iscale;
         nrows    = (count >> 1) + 1;
+        prof_r_pixels += nrows;            /* halfline: actual rows drawn */
 
         { int bit_pos = 7 - (fb_x & 7);  /* bit NUMBER for BSET/BCLR */
           unsigned int gray;
@@ -1030,9 +1032,11 @@ void R_DrawColumn_Mono(void)
           }
         }
     } else {
-        /* === Full-line path: all rows, Bayer-4 unrolled === */
+        /* === Full-line path: all rows, Bayer-4 unrolled + asm macros === */
         byte thresh[4];
         int  bayer_y;
+        int  bit_pos = 7 - (fb_x & 7);  /* bit NUMBER for BSET/BCLR */
+        prof_r_pixels += count + 1;      /* fullline: all rows drawn */
 
         thresh[0] = bayer4x4[0][fb_x & 3];
         thresh[1] = bayer4x4[1][fb_x & 3];
@@ -1046,41 +1050,42 @@ void R_DrawColumn_Mono(void)
         frac     = dc_texturemid + (dc_yl - centery) * fracstep;
         bayer_y  = (dc_yl + viewwindowy) & 3;
 
-        /* Align to Bayer-4 boundary */
-        while (bayer_y != 0 && count >= 0) {
-            byte gray = mono_cm[dc_source[((unsigned int)frac >> FRACBITS) & 127]];
-            if (gray < thresh[bayer_y]) *dst |= bit_set; else *dst &= bit_clr;
-            dst += fb_mono_rowbytes; frac += fracstep;
-            bayer_y = (bayer_y + 1) & 3;
-            count--;
-        }
-        /* Main loop: 4 rows at a time — bayer_y == 0, thresholds are constants */
-        while (count >= 3) {
-            byte gray;
-            gray = mono_cm[dc_source[((unsigned int)frac >> FRACBITS) & 127]];
-            if (gray < thresh[0]) *dst |= bit_set; else *dst &= bit_clr;
-            dst += fb_mono_rowbytes; frac += fracstep;
+        { unsigned int gray;
+          /* Align to Bayer-4 boundary (0–3 pixels) */
+          while (bayer_y != 0 && count >= 0) {
+              COLMONO_GRAY(frac, dc_source, mono_cm, gray);
+              COLMONO_BIT(gray, thresh[bayer_y], bit_pos, dst);
+              dst += fb_mono_rowbytes; frac += fracstep;
+              bayer_y = (bayer_y + 1) & 3;
+              count--;
+          }
+          /* Main loop: 4 rows at a time — thresholds are loop-invariant constants */
+          while (count >= 3) {
+              COLMONO_GRAY(frac, dc_source, mono_cm, gray);
+              COLMONO_BIT(gray, thresh[0], bit_pos, dst);
+              dst += fb_mono_rowbytes; frac += fracstep;
 
-            gray = mono_cm[dc_source[((unsigned int)frac >> FRACBITS) & 127]];
-            if (gray < thresh[1]) *dst |= bit_set; else *dst &= bit_clr;
-            dst += fb_mono_rowbytes; frac += fracstep;
+              COLMONO_GRAY(frac, dc_source, mono_cm, gray);
+              COLMONO_BIT(gray, thresh[1], bit_pos, dst);
+              dst += fb_mono_rowbytes; frac += fracstep;
 
-            gray = mono_cm[dc_source[((unsigned int)frac >> FRACBITS) & 127]];
-            if (gray < thresh[2]) *dst |= bit_set; else *dst &= bit_clr;
-            dst += fb_mono_rowbytes; frac += fracstep;
+              COLMONO_GRAY(frac, dc_source, mono_cm, gray);
+              COLMONO_BIT(gray, thresh[2], bit_pos, dst);
+              dst += fb_mono_rowbytes; frac += fracstep;
 
-            gray = mono_cm[dc_source[((unsigned int)frac >> FRACBITS) & 127]];
-            if (gray < thresh[3]) *dst |= bit_set; else *dst &= bit_clr;
-            dst += fb_mono_rowbytes; frac += fracstep;
+              COLMONO_GRAY(frac, dc_source, mono_cm, gray);
+              COLMONO_BIT(gray, thresh[3], bit_pos, dst);
+              dst += fb_mono_rowbytes; frac += fracstep;
 
-            count -= 4;
-        }
-        /* Trailing rows */
-        while (count-- >= 0) {
-            byte gray = mono_cm[dc_source[((unsigned int)frac >> FRACBITS) & 127]];
-            if (gray < thresh[bayer_y]) *dst |= bit_set; else *dst &= bit_clr;
-            dst += fb_mono_rowbytes; frac += fracstep;
-            bayer_y = (bayer_y + 1) & 3;
+              count -= 4;
+          }
+          /* Trailing rows (0–3) */
+          while (count-- >= 0) {
+              COLMONO_GRAY(frac, dc_source, mono_cm, gray);
+              COLMONO_BIT(gray, thresh[bayer_y], bit_pos, dst);
+              dst += fb_mono_rowbytes; frac += fracstep;
+              bayer_y = (bayer_y + 1) & 3;
+          }
         }
     }
 }
@@ -1095,7 +1100,6 @@ void R_DrawColumnLow_Mono(void)
 {
     int             count;
     unsigned char  *dst0, *dst1;
-    unsigned char   bit_set0, bit_clr0, bit_set1, bit_clr1;
     fixed_t         frac, fracstep;
     byte            thresh0[4], thresh1[4];
     int             bayer_y;
@@ -1114,11 +1118,6 @@ void R_DrawColumnLow_Mono(void)
 
     fb_x0   = lx + fb_mono_xoff;
     fb_x1   = fb_x0 + 1;
-
-    bit_set0 = (unsigned char)(0x80 >> (fb_x0 & 7));
-    bit_clr0 = (unsigned char)(~bit_set0);
-    bit_set1 = (unsigned char)(0x80 >> (fb_x1 & 7));
-    bit_clr1 = (unsigned char)(~bit_set1);
 
     thresh0[0] = bayer4x4[0][fb_x0 & 3];
     thresh0[1] = bayer4x4[1][fb_x0 & 3];
@@ -1150,11 +1149,11 @@ void R_DrawColumnLow_Mono(void)
             unsigned int gray;
             if ((start_y + viewwindowy) & 1) { start_y++; count--; }
             if (count < 0) return;
-            bayer_y  = (start_y + viewwindowy) & 3;  /* 0 or 2 */
+            bayer_y  = ((start_y + viewwindowy) >> 1) & 3;  /* cycles all 4 rows over 8 screen rows */
             /* Precompute both alternating threshold pairs — eliminates the
              * bayer_y index update and thresh[][bayer_y] stack loads from the loop. */
             th0_a = thresh0[bayer_y];           th1_a = thresh1[bayer_y];
-            th0_b = thresh0[(bayer_y + 2) & 3]; th1_b = thresh1[(bayer_y + 2) & 3];
+            th0_b = thresh0[(bayer_y + 1) & 3]; th1_b = thresh1[(bayer_y + 1) & 3];
             fracstep = dc_iscale << 1;
             frac     = dc_texturemid + (start_y - centery) * dc_iscale;
             dst0 = (unsigned char *)fb_mono_base
@@ -1164,6 +1163,7 @@ void R_DrawColumnLow_Mono(void)
                    + (start_y + viewwindowy + fb_mono_yoff) * fb_mono_rowbytes
                    + (fb_x1 >> 3);
             nrows = (count >> 1) + 1;
+            prof_r_pixels += nrows * 2;    /* halfline ×2: actual rows × 2 screen px wide */
             /* Unrolled 2×: row A uses _a thresholds, row B uses _b thresholds. */
             while (nrows >= 2) {
                 COLMONO_GRAY(frac, dc_source, mono_cm, gray);
@@ -1186,18 +1186,57 @@ void R_DrawColumnLow_Mono(void)
                 COLMONO_BIT(gray, th1_a, bp1, dst1);
             }
         } else {
+            /* Full-line path: all rows, Bayer-4 unrolled + asm macros. */
+            prof_r_pixels += (count + 1) * 2;  /* fullline ×2: all rows × 2 screen px wide */
+            int bp0 = 7 - (fb_x0 & 7);  /* bit NUMBER for BSET/BCLR, pixel 0 */
+            int bp1 = 7 - (fb_x1 & 7);  /* bit NUMBER for BSET/BCLR, pixel 1 */
+            unsigned int gray;
             fracstep = dc_iscale;
             frac     = dc_texturemid + (dc_yl - centery) * fracstep;
             bayer_y  = (dc_yl + viewwindowy) & 3;
-            do {
-                byte gray = mono_cm[dc_source[((unsigned int)frac >> FRACBITS) & 127]];
-                if (gray < thresh0[bayer_y]) *dst0 |= bit_set0; else *dst0 &= bit_clr0;
-                if (gray < thresh1[bayer_y]) *dst1 |= bit_set1; else *dst1 &= bit_clr1;
-                dst0    += fb_mono_rowbytes;
-                dst1    += fb_mono_rowbytes;
-                frac    += fracstep;
-                bayer_y  = (bayer_y + 1) & 3;
-            } while (count--);
+            /* Align to Bayer-4 boundary (0–3 pixels) */
+            while (bayer_y != 0 && count >= 0) {
+                COLMONO_GRAY(frac, dc_source, mono_cm, gray);
+                COLMONO_BIT(gray, thresh0[bayer_y], bp0, dst0);
+                COLMONO_BIT(gray, thresh1[bayer_y], bp1, dst1);
+                dst0 += fb_mono_rowbytes; dst1 += fb_mono_rowbytes;
+                frac += fracstep;
+                bayer_y = (bayer_y + 1) & 3;
+                count--;
+            }
+            /* Main loop: 4 rows at a time — thresholds are loop-invariant constants */
+            while (count >= 3) {
+                COLMONO_GRAY(frac, dc_source, mono_cm, gray);
+                COLMONO_BIT(gray, thresh0[0], bp0, dst0);
+                COLMONO_BIT(gray, thresh1[0], bp1, dst1);
+                dst0 += fb_mono_rowbytes; dst1 += fb_mono_rowbytes; frac += fracstep;
+
+                COLMONO_GRAY(frac, dc_source, mono_cm, gray);
+                COLMONO_BIT(gray, thresh0[1], bp0, dst0);
+                COLMONO_BIT(gray, thresh1[1], bp1, dst1);
+                dst0 += fb_mono_rowbytes; dst1 += fb_mono_rowbytes; frac += fracstep;
+
+                COLMONO_GRAY(frac, dc_source, mono_cm, gray);
+                COLMONO_BIT(gray, thresh0[2], bp0, dst0);
+                COLMONO_BIT(gray, thresh1[2], bp1, dst1);
+                dst0 += fb_mono_rowbytes; dst1 += fb_mono_rowbytes; frac += fracstep;
+
+                COLMONO_GRAY(frac, dc_source, mono_cm, gray);
+                COLMONO_BIT(gray, thresh0[3], bp0, dst0);
+                COLMONO_BIT(gray, thresh1[3], bp1, dst1);
+                dst0 += fb_mono_rowbytes; dst1 += fb_mono_rowbytes; frac += fracstep;
+
+                count -= 4;
+            }
+            /* Trailing rows (0–3) */
+            while (count-- >= 0) {
+                COLMONO_GRAY(frac, dc_source, mono_cm, gray);
+                COLMONO_BIT(gray, thresh0[bayer_y], bp0, dst0);
+                COLMONO_BIT(gray, thresh1[bayer_y], bp1, dst1);
+                dst0 += fb_mono_rowbytes; dst1 += fb_mono_rowbytes;
+                frac += fracstep;
+                bayer_y = (bayer_y + 1) & 3;
+            }
         }
     }
 }
@@ -1249,7 +1288,7 @@ void R_DrawFuzzColumn_Mono(void)
             dst = (unsigned char *)fb_mono_base
                   + (start_y + viewwindowy + fb_mono_yoff) * fb_mono_rowbytes
                   + (fb_x >> 3);
-            bayer_y  = (start_y + viewwindowy) & 3;
+            bayer_y  = ((start_y + viewwindowy) >> 1) & 3;
             fracstep = dc_iscale << 1;
             frac     = dc_texturemid + (start_y - centery) * dc_iscale;
             nrows    = (count >> 1) + 1;
@@ -1258,7 +1297,7 @@ void R_DrawFuzzColumn_Mono(void)
                 if (gray < thresh[bayer_y]) *dst |= bit_set; else *dst &= bit_clr;
                 dst     += fb_mono_rowbytes << 1;
                 frac    += fracstep;
-                bayer_y  = (bayer_y + 2) & 3;
+                bayer_y  = (bayer_y + 1) & 3;
             } while (--nrows > 0);
         } else {
             fracstep = dc_iscale;
@@ -1319,7 +1358,7 @@ void R_DrawTranslatedColumn_Mono(void)
             dst = (unsigned char *)fb_mono_base
                   + (start_y + viewwindowy + fb_mono_yoff) * fb_mono_rowbytes
                   + (fb_x >> 3);
-            bayer_y  = (start_y + viewwindowy) & 3;
+            bayer_y  = ((start_y + viewwindowy) >> 1) & 3;
             fracstep = dc_iscale << 1;
             frac     = dc_texturemid + (start_y - centery) * dc_iscale;
             nrows    = (count >> 1) + 1;
@@ -1328,7 +1367,7 @@ void R_DrawTranslatedColumn_Mono(void)
                 if (gray < thresh[bayer_y]) *dst |= bit_set; else *dst &= bit_clr;
                 dst     += fb_mono_rowbytes << 1;
                 frac    += fracstep;
-                bayer_y  = (bayer_y + 2) & 3;
+                bayer_y  = (bayer_y + 1) & 3;
             } while (--nrows > 0);
         } else {
             fracstep = dc_iscale;
@@ -1566,4 +1605,260 @@ void R_DrawSpanLow_Mono(void)
         yfrac  += ds_ystep;
         half_x++;
     } while (count--);
+}
+
+
+/*
+ * R_DrawColumnQuadLow_Mono
+ * Ultra-low-detail (detailshift=2) wall column renderer → direct 1-bit framebuffer.
+ * Each logical column is 4 screen pixels wide.
+ *
+ * Nibble write: all 4 pixels of a column land in one byte half (high or low
+ * nibble).  Because viewwindowx + fb_mono_xoff ≡ 0 (mod 4), the four physical
+ * pixels always map to Bayer columns 0,1,2,3 in order.  We compute one
+ * threshold comparison per pixel, building a 4-bit value that is written as a
+ * nibble — giving proper per-pixel Bayer dithering within each quad column.
+ *
+ * QUAD_NIBBLE(g, br): 4-bit result, bit3=pixel0(leftmost)…bit0=pixel3.
+ * High nibble: result << 4.  Low nibble: result directly.
+ */
+
+/* QUAD_NIBBLE must be undefined after use; defined locally below. */
+#define QUAD_NIBBLE(g, br)                          \
+    ( ((unsigned)(g) < (unsigned)(br)[0]) << 3 |    \
+      ((unsigned)(g) < (unsigned)(br)[1]) << 2 |    \
+      ((unsigned)(g) < (unsigned)(br)[2]) << 1 |    \
+      ((unsigned)(g) < (unsigned)(br)[3]) )
+
+/* Instrumentation for QuadLow renderer.
+ * prof_r_quad_calls: total calls per FPS window (reset by d_main.c).
+ * quad_dbg_done: set after first debug log; reset by d_main.c via extern. */
+long prof_r_quad_calls = 0;
+int  quad_dbg_done     = 0;
+
+void R_DrawColumnQuadLow_Mono(void)
+{
+    int             count;
+    fixed_t         frac, fracstep;
+    int             bayer_y;
+    int             fb_x;
+    int             is_high;   /* 1 = high nibble (bits 7-4), 0 = low (bits 3-0) */
+    unsigned char  *dst;
+    const byte     *mono_cm;
+
+    count = dc_yh - dc_yl;
+    if (count < 0) return;
+
+    prof_r_quad_calls++;
+
+    fb_x    = (dc_x << 2) + viewwindowx + fb_mono_xoff;
+    is_high = !(fb_x & 4);
+    mono_cm = no_lighting ? mono_colormaps
+                          : mono_colormaps + (dc_colormap - colormaps);
+
+    /* First-call debug: log enough state to diagnose white-wall issue. */
+    if (!quad_dbg_done) {
+        fixed_t   f0      = dc_texturemid + (dc_yl - centery) * dc_iscale;
+        unsigned int g0   = dc_source
+                            ? mono_cm[dc_source[((unsigned int)f0 >> FRACBITS) & 127]]
+                            : 999;
+        int       by0     = (dc_yl + viewwindowy) & 3;
+        unsigned char dst_before = fb_mono_base
+                            ? *((unsigned char*)fb_mono_base
+                                + (dc_yl + viewwindowy + fb_mono_yoff) * fb_mono_rowbytes
+                                + (fb_x >> 3))
+                            : 0xFF;
+        doom_log("QUAD_DBG: dc_x=%d yl=%d yh=%d fb_x=%d is_high=%d by=%d\r",
+                 dc_x, dc_yl, dc_yh, fb_x, is_high, by0);
+        doom_log("QUAD_DBG: gray=%u nibble=%d cm_off=%ld src=%p dst_byte=0x%02X\r",
+                 g0,
+                 ( ((unsigned)g0 < (unsigned)bayer4x4[by0][0]) << 3 |
+                   ((unsigned)g0 < (unsigned)bayer4x4[by0][1]) << 2 |
+                   ((unsigned)g0 < (unsigned)bayer4x4[by0][2]) << 1 |
+                   ((unsigned)g0 < (unsigned)bayer4x4[by0][3]) ),
+                 (long)(dc_colormap - colormaps),
+                 (void*)dc_source,
+                 (unsigned)dst_before);
+        doom_log("QUAD_DBG: fb_base=%p rowbytes=%d vwx=%d vwy=%d xoff=%d yoff=%d iscale=%ld\r",
+                 fb_mono_base, fb_mono_rowbytes,
+                 viewwindowx, viewwindowy, fb_mono_xoff, fb_mono_yoff,
+                 (long)dc_iscale);
+        quad_dbg_done = 1;
+    }
+
+    if (opt_halfline) {
+        int          start_y = dc_yl;
+        int          nrows;
+        unsigned int gray;
+        const byte  *br_a, *br_b;
+
+        if ((start_y + viewwindowy) & 1) { start_y++; count--; }
+        if (count < 0) return;
+
+        bayer_y = ((start_y + viewwindowy) >> 1) & 3;
+        br_a    = bayer4x4[bayer_y];
+        br_b    = bayer4x4[(bayer_y + 1) & 3];
+
+        fracstep = dc_iscale << 1;
+        frac     = dc_texturemid + (start_y - centery) * dc_iscale;
+
+        dst   = (unsigned char *)fb_mono_base
+                + (start_y + viewwindowy + fb_mono_yoff) * fb_mono_rowbytes
+                + (fb_x >> 3);
+        nrows = (count >> 1) + 1;
+        prof_r_pixels += nrows * 4;
+
+        if (is_high) {
+            while (nrows >= 2) {
+                COLMONO_GRAY(frac, dc_source, mono_cm, gray);
+                *dst = (*dst & 0x0F) | (QUAD_NIBBLE(gray, br_a) << 4);
+                dst += fb_mono_rowbytes << 1; frac += fracstep;
+
+                COLMONO_GRAY(frac, dc_source, mono_cm, gray);
+                *dst = (*dst & 0x0F) | (QUAD_NIBBLE(gray, br_b) << 4);
+                dst += fb_mono_rowbytes << 1; frac += fracstep;
+                nrows -= 2;
+            }
+            if (nrows > 0) {
+                COLMONO_GRAY(frac, dc_source, mono_cm, gray);
+                *dst = (*dst & 0x0F) | (QUAD_NIBBLE(gray, br_a) << 4);
+            }
+        } else {
+            while (nrows >= 2) {
+                COLMONO_GRAY(frac, dc_source, mono_cm, gray);
+                *dst = (*dst & 0xF0) | QUAD_NIBBLE(gray, br_a);
+                dst += fb_mono_rowbytes << 1; frac += fracstep;
+
+                COLMONO_GRAY(frac, dc_source, mono_cm, gray);
+                *dst = (*dst & 0xF0) | QUAD_NIBBLE(gray, br_b);
+                dst += fb_mono_rowbytes << 1; frac += fracstep;
+                nrows -= 2;
+            }
+            if (nrows > 0) {
+                COLMONO_GRAY(frac, dc_source, mono_cm, gray);
+                *dst = (*dst & 0xF0) | QUAD_NIBBLE(gray, br_a);
+            }
+        }
+    } else {
+        unsigned int gray;
+        fracstep = dc_iscale;
+        frac     = dc_texturemid + (dc_yl - centery) * fracstep;
+        bayer_y  = (dc_yl + viewwindowy) & 3;
+
+        dst = (unsigned char *)fb_mono_base
+              + (dc_yl + viewwindowy + fb_mono_yoff) * fb_mono_rowbytes
+              + (fb_x >> 3);
+        prof_r_pixels += (count + 1) * 4;
+
+        if (is_high) {
+            while (count-- >= 0) {
+                COLMONO_GRAY(frac, dc_source, mono_cm, gray);
+                *dst = (*dst & 0x0F) | (QUAD_NIBBLE(gray, bayer4x4[bayer_y]) << 4);
+                dst += fb_mono_rowbytes; frac += fracstep;
+                bayer_y = (bayer_y + 1) & 3;
+            }
+        } else {
+            while (count-- >= 0) {
+                COLMONO_GRAY(frac, dc_source, mono_cm, gray);
+                *dst = (*dst & 0xF0) | QUAD_NIBBLE(gray, bayer4x4[bayer_y]);
+                dst += fb_mono_rowbytes; frac += fracstep;
+                bayer_y = (bayer_y + 1) & 3;
+            }
+        }
+    }
+}
+#undef QUAD_NIBBLE
+
+
+/*
+ * R_DrawSpanQuadLow_Mono
+ * Ultra-low-detail (detailshift=2) floor/ceiling span renderer → direct 1-bit framebuffer.
+ * Each logical pixel maps to 4 consecutive screen pixels (nibble write).
+ */
+void R_DrawSpanQuadLow_Mono(void)
+{
+    fixed_t            xfrac, yfrac;
+    int                count;
+    unsigned char     *dst_row;
+    int                half_x, fb_x_base;
+    const byte        *mono_cm;
+    const byte        *bayer_row;
+
+    if (opt_halfline && ((ds_y + viewwindowy) & 1))
+        return;
+
+    {
+        int fb_y = ds_y + viewwindowy + fb_mono_yoff;
+        dst_row  = (unsigned char *)fb_mono_base + fb_y * fb_mono_rowbytes;
+    }
+
+    mono_cm   = no_lighting ? mono_colormaps
+                            : mono_colormaps + (ds_colormap - colormaps);
+    bayer_row = bayer4x4[(ds_y + viewwindowy) & 3];
+    fb_x_base = viewwindowx + fb_mono_xoff;
+
+    if (opt_solidfloor) {
+        byte          gray  = mono_cm[ds_source[32*64 + 32]];
+        int           x1_fb = (ds_x1 << 2) + fb_x_base;
+        int           x2_fb = (ds_x2 << 2) + 3 + fb_x_base;
+        int           b1    = x1_fb >> 3;
+        int           b2    = x2_fb >> 3;
+        unsigned char fill  = 0;
+        unsigned char mask;
+
+        if (gray < bayer_row[0]) fill |= 0x88;
+        if (gray < bayer_row[1]) fill |= 0x44;
+        if (gray < bayer_row[2]) fill |= 0x22;
+        if (gray < bayer_row[3]) fill |= 0x11;
+
+        if (b1 == b2) {
+            mask = (unsigned char)(0xFF >> (x1_fb & 7))
+                 & (unsigned char)(0xFF << (7 - (x2_fb & 7)));
+            dst_row[b1] = (dst_row[b1] & ~mask) | (fill & mask);
+        } else {
+            if (x1_fb & 7) {
+                mask = (unsigned char)(0xFF >> (x1_fb & 7));
+                dst_row[b1] = (dst_row[b1] & ~mask) | (fill & mask);
+                b1++;
+            }
+            if ((x2_fb & 7) != 7) {
+                mask = (unsigned char)(0xFF << (7 - (x2_fb & 7)));
+                dst_row[b2] = (dst_row[b2] & ~mask) | (fill & mask);
+                b2--;
+            }
+            if (b2 >= b1)
+                memset(dst_row + b1, fill, (size_t)(b2 - b1 + 1));
+        }
+        return;
+    }
+
+    xfrac  = ds_xfrac;
+    yfrac  = ds_yfrac;
+    count  = ds_x2 - ds_x1;
+    half_x = ds_x1;
+
+    /* Each span pixel → 4 physical pixels (nibble).  Since fb_x_base ≡ 0 mod 4,
+     * the 4 pixels always map to Bayer columns 0-3; use all 4 thresholds. */
+#define QUAD_NIBBLE(g, br)                          \
+    ( ((unsigned)(g) < (unsigned)(br)[0]) << 3 |    \
+      ((unsigned)(g) < (unsigned)(br)[1]) << 2 |    \
+      ((unsigned)(g) < (unsigned)(br)[2]) << 1 |    \
+      ((unsigned)(g) < (unsigned)(br)[3]) )
+
+    do {
+        int           spot  = (((unsigned int)yfrac >> (16-6)) & (63*64))
+                            + (((unsigned int)xfrac >> 16) & 63);
+        unsigned int  gray  = mono_cm[ds_source[spot]];
+        int           fb_x0 = (half_x << 2) + fb_x_base;
+        int           byte_idx = fb_x0 >> 3;
+        if (fb_x0 & 4)
+            dst_row[byte_idx] = (dst_row[byte_idx] & 0xF0) | QUAD_NIBBLE(gray, bayer_row);
+        else
+            dst_row[byte_idx] = (dst_row[byte_idx] & 0x0F) | (QUAD_NIBBLE(gray, bayer_row) << 4);
+
+        xfrac  += ds_xstep;
+        yfrac  += ds_ystep;
+        half_x++;
+    } while (count--);
+#undef QUAD_NIBBLE
 }

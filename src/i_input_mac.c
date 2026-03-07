@@ -121,18 +121,20 @@ static const struct { int macKey; int doomKey; } kKeyTable[] = {
  *  L (0x25)  toggle no_lighting
  *  K (0x28)  save doom_dither.cfg
  *  ` (0x32)  fog_scale   +2048   \ (0x2A)  fog_scale   -2048
+ *  Z (0x06)  solidfloor_gray cycle 0→1→2→3→4→0
  */
 static const struct { int macKey; int param; int delta; } kDitherKeys[] = {
-    { 0x21, 1, -1 },   /* [  → game_black -5    */
-    { 0x1E, 1, +1 },   /* ]  → game_black +5    */
-    { 0x29, 2, -1 },   /* ;  → game_white -5    */
-    { 0x27, 2, +1 },   /* '  → game_white +5    */
-    { 0x1F, 0, -1 },   /* O  → gamma -0.05      */
-    { 0x23, 0, +1 },   /* P  → gamma +0.05      */
-    { 0x25, 3,  0 },   /* L  → toggle lighting  */
-    { 0x28, 4,  0 },   /* K  → save config      */
-    { 0x32, 5, +1 },   /* `  → fog_scale +2048  */
-    { 0x2A, 5, -1 },   /* \  → fog_scale -2048  */
+    { 0x21, 1, -1 },   /* [  → game_black -5               */
+    { 0x1E, 1, +1 },   /* ]  → game_black +5               */
+    { 0x29, 2, -1 },   /* ;  → game_white -5               */
+    { 0x27, 2, +1 },   /* '  → game_white +5               */
+    { 0x1F, 0, -1 },   /* O  → gamma -0.05                 */
+    { 0x23, 0, +1 },   /* P  → gamma +0.05                 */
+    { 0x25, 3,  0 },   /* L  → toggle lighting             */
+    { 0x28, 4,  0 },   /* K  → save config                 */
+    { 0x32, 5, +1 },   /* `  → fog_scale +2048             */
+    { 0x2A, 5, -1 },   /* \  → fog_scale -2048             */
+    { 0x06, 6,  0 },   /* Z  → solidfloor_gray cycle 0-4   */
     { -1, 0, 0 }
 };
 

@@ -108,7 +108,7 @@ boolean		singletics = false; // debug flag to cancel adaptiveness
 int opt_halfline      = 0;
 int opt_affine_texcol = 0;
 int opt_solidfloor    = 0;
-/* Gray fill level for solid floor/ceiling: 0=white 1=25% 2=50% 3=75% 4=black */
+/* Gray fill level for solid floor/ceiling: 0=white 1=25% 2=50% 3=~88% 4=black */
 int solidfloor_gray   = 0;
 /* Distance fog threshold (fixed_t scale units; 0=off).
  * Wall/sprite columns with rw_scale/xscale < fog_scale are skipped —
@@ -116,6 +116,7 @@ int solidfloor_gray   = 0;
  * Step size is 2048 per keypress (` to raise, \ to lower). */
 int fog_scale         = 0;
 
+extern int detailLevel;   /* defined in m_menu.c */
 
 
 //extern int soundVolume;
@@ -214,6 +215,11 @@ void R_ExecuteSetViewSize (void);
  * 60 ticks = 1 real second, so values read directly as % of wall clock.
  * Render sub-profile exported from r_main.c: */
 extern long prof_r_setup, prof_r_bsp, prof_r_planes, prof_r_masked;
+extern long prof_r_segs, prof_r_seg_loop;   /* r_segs.c: seg count + segloop time */
+extern long prof_r_pixels;                   /* r_draw.c: total pixels drawn */
+extern long prof_palette_skips;              /* i_video_mac.c: I_SetPalette no-op calls */
+extern long prof_r_quad_calls;              /* r_draw.c: R_DrawColumnQuadLow_Mono calls */
+extern int  quad_dbg_done;                  /* r_draw.c: reset to re-arm debug log */
 static long prof_logic  = 0;
 static long prof_render = 0;
 static long prof_blit   = 0;
@@ -510,18 +516,38 @@ void D_DoomLoop (void)
 		     prof_sound);
 	    doom_log("  render: setup=%ld bsp=%ld planes=%ld masked=%ld\r",
 		     prof_r_setup, prof_r_bsp, prof_r_planes, prof_r_masked);
-	    ft_frames     = 0;
-	    ft_last_tic   = gametic;
-	    ft_wall_start = I_GetMacTick();
-	    prof_logic    = 0;
-	    prof_render   = 0;
-	    prof_blit     = 0;
-	    prof_sound    = 0;
-	    prof_disp     = 0;
-	    prof_r_setup  = 0;
-	    prof_r_bsp    = 0;
-	    prof_r_planes = 0;
-	    prof_r_masked = 0;
+	    { /* cy/px: approx column-renderer cycles per screen pixel (SE/30 = 16MHz/60Hz).
+	       * Uses long long to avoid overflow on very slow hardware. */
+	      long cy_px = prof_r_pixels > 0
+		  ? (long)((long long)prof_r_seg_loop * 266667LL / prof_r_pixels)
+		  : 0;
+	      doom_log("    bsp: segs=%ld segloop=%ld trav=%ld px=%ld cy/px=%ld\r",
+		       prof_r_segs, prof_r_seg_loop,
+		       prof_r_bsp - prof_r_seg_loop,
+		       prof_r_pixels, cy_px);
+	    }
+	    doom_log("  pal_skips=%ld quad_calls=%ld\r",
+		     prof_palette_skips, prof_r_quad_calls);
+	    doom_log_flush();  /* force HFS commit so data survives a crash */
+
+	    ft_frames       = 0;
+	    ft_last_tic     = gametic;
+	    ft_wall_start   = I_GetMacTick();
+	    prof_logic      = 0;
+	    prof_render     = 0;
+	    prof_blit       = 0;
+	    prof_sound      = 0;
+	    prof_disp       = 0;
+	    prof_r_setup    = 0;
+	    prof_r_bsp      = 0;
+	    prof_r_planes   = 0;
+	    prof_r_masked   = 0;
+	    prof_r_segs     = 0;
+	    prof_r_seg_loop = 0;
+	    prof_r_pixels   = 0;
+	    prof_palette_skips = 0;
+	    prof_r_quad_calls  = 0;
+	    quad_dbg_done       = 0;   /* re-arm first-call debug next window */
 	}
     }
 }
@@ -954,7 +980,7 @@ void D_DoomMain (void)
     fastparm = M_CheckParm ("-fast");
     devparm = M_CheckParm ("-devparm");
     if (M_CheckParm ("-halfline"))   opt_halfline      = 1;
-    if (M_CheckParm ("-affinetex"))  opt_affine_texcol = 1;
+    if (M_CheckParm ("-affinetex")) opt_affine_texcol = 1;
     if (M_CheckParm ("-altdeath"))
 	deathmatch = 2;
     else if (M_CheckParm ("-deathmatch"))
@@ -1164,8 +1190,8 @@ void D_DoomMain (void)
     doom_log ("CHKPT: entering M_LoadDefaults\n");
     M_LoadDefaults ();              // load before initing other systems
     doom_log ("CHKPT: M_LoadDefaults done\r");
-    doom_log("D_DoomMain: opt_halfline=%d opt_affine_texcol=%d opt_solidfloor=%d\r",
-             opt_halfline, opt_affine_texcol, opt_solidfloor);
+    doom_log("D_DoomMain: opt_halfline=%d opt_affinetex=%d opt_solidfloor=%d solidfloor_gray=%d detailLevel=%d\r",
+             opt_halfline, opt_affine_texcol, opt_solidfloor, solidfloor_gray, detailLevel);
 
     printf ("Z_Init: Init zone memory allocation daemon. \n");
     doom_log ("CHKPT: entering Z_Init\n");

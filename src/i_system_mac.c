@@ -9,6 +9,7 @@
 #include <Events.h>
 #include <OSUtils.h>
 #include <Processes.h>
+#include <Sound.h>
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -47,6 +48,30 @@ void doom_log(const char *fmt, ...)
         for (p = buf; *p; p++)
             fputc(*p == '\n' ? '\r' : *p, g_logfile);
         fflush(g_logfile);
+    }
+}
+
+/* Force HFS to commit its sector cache to the underlying volume.
+ * fflush() only flushes the stdio buffer into the HFS layer; if the
+ * process crashes without a clean exit the HFS dirty cache is lost.
+ * Call this after any log block whose loss would be unacceptable
+ * (e.g., the 35-tic FPS window in D_DoomLoop). */
+void doom_log_flush(void)
+{
+    if (g_logfile)
+        fflush(g_logfile);
+    FlushVol(NULL, 0);   /* flush default HFS volume → commits to ExtFS */
+}
+
+/* Play n short system beeps with a brief gap between them.
+ * Used for detail-level feedback: HIGH=1, LOW=2, QUAD=3. */
+void I_MacBeep(int n)
+{
+    int i;
+    for (i = 0; i < n; i++) {
+        SysBeep(6);          /* 6 ticks ≈ 0.1 s beep */
+        if (i < n - 1)
+            Delay(12, NULL); /* 12 ticks ≈ 0.2 s gap between beeps */
     }
 }
 
@@ -189,12 +214,16 @@ ticcmd_t *I_BaseTiccmd(void)
 void I_Quit(void)
 {
     doom_log("I_Quit: starting\n");
+    doom_log_flush();
     D_QuitNetGame();
     doom_log("I_Quit: D_QuitNetGame done\n");
+    doom_log_flush();
     I_ShutdownSound();
     doom_log("I_Quit: I_ShutdownSound done\n");
+    doom_log_flush();
     I_ShutdownGraphics();
     doom_log("I_Quit: I_ShutdownGraphics done\n");
+    doom_log_flush();
     M_SaveDefaults();
     doom_log("I_Quit: M_SaveDefaults done — exiting\n");
     if (g_logfile) { fclose(g_logfile); g_logfile = NULL; }

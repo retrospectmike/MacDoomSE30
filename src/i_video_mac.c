@@ -180,8 +180,7 @@ static void I_BuildMonoColormaps(void)
     if (!colormaps) return;
     for (i = 0; i < 34 * 256; i++)
         mono_colormaps[i] = grayscale_pal[(byte)colormaps[i]];
-    doom_log("I_BuildMonoColormaps: mc[0]=%d mc[256]=%d mc[512]=%d\r",
-             mono_colormaps[128], mono_colormaps[256+128], mono_colormaps[512+128]);
+    /* Note: doom_log removed here — fflush on every rebuild was measurable overhead. */
 }
 
 /* Rebuild gamma_curve from current dither_gamma.  Called at startup and
@@ -381,6 +380,13 @@ void I_AdjustDither(int param, int delta)
             if (fog_scale > 65536)  fog_scale = 65536;
             doom_log("fog: fog_scale=%d\r", fog_scale);
             return;  /* no palette rebuild needed */
+        case 6: /* solidfloor_gray: cycle 0→1→2→3→4→0 */
+            {
+                extern int solidfloor_gray;
+                solidfloor_gray = (solidfloor_gray + 1) % 5;
+                doom_log("floor: solidfloor_gray=%d\r", solidfloor_gray);
+            }
+            return;  /* no palette rebuild needed */
     }
     I_RebuildDitherPalette();
 }
@@ -456,15 +462,33 @@ void I_ShutdownGraphics(void)
     ShowCursor();
 }
 
+/* Count I_SetPalette calls skipped because palette was unchanged.
+ * Reset every 35 game tics by d_main.c.  Reported in FPS log line. */
+long prof_palette_skips = 0;
+
 /*
  * I_SetPalette — Doom calls this when the palette changes.
  * We convert the RGB palette to grayscale values for our 1-bit output.
  * palette is 768 bytes: 256 entries of (R, G, B).
+ *
+ * ST_doPaletteStuff calls this every game tic even when palette index 0
+ * (default palette) is active.  The fast-path memcmp avoids rebuilding
+ * grayscale_pal and setting mono_dirty when nothing has changed, which
+ * was burning ~2 Mac ticks/window in the profiling blit bucket.
  */
 void I_SetPalette(byte *palette)
 {
     int i;
-    int wt_sum = dither_r_wt + dither_g_wt + dither_b_wt;
+    int wt_sum;
+
+    /* Fast path: identical palette → skip all computation, don't mark dirty. */
+    if (palette_valid && memcmp(palette, saved_palette, 768) == 0)
+    {
+        prof_palette_skips++;
+        return;
+    }
+
+    wt_sum = dither_r_wt + dither_g_wt + dither_b_wt;
     if (wt_sum < 1) wt_sum = 1;
 
     /* Save palette for runtime rebuilds (hotkey param changes). */
@@ -729,6 +753,27 @@ void I_FinishUpdate(void)
             unsigned char *dst = (unsigned char *)(fb_mono_base
                                  + (y + yoff) * fb_mono_rowbytes) + (xoff >> 3);
             for (x = 0; x < SCREENWIDTH; x += 8) { *dst &= ~blit8_black(ovr + x); dst++; }
+        }
+    }
+
+    /* PROBE B: read back same bytes as PROBE A, after I_FinishUpdate processing.
+     * If different from PROBE A, I_FinishUpdate is clearing the view area. */
+    {
+        extern int detailshift;
+        static int probe_b_logged = 0;
+        /* Guard: only fire during actual direct-mode gameplay frame.
+         * Read same positions as PROBE_A to compare before/after IFU processing. */
+        if (!probe_b_logged && detailshift == 2 && fb_mono_base && is_direct) {
+            int cx0   = (viewwindowx + xoff) >> 3;
+            int cx14  = ((14<<2) + viewwindowx + xoff) >> 3;
+            int wall_y  = viewwindowy + viewheight/2 + yoff;
+            int floor_y = viewwindowy + viewheight - 2 + yoff;
+            unsigned char b0w  = ((unsigned char*)fb_mono_base)[wall_y  * fb_mono_rowbytes + cx0];
+            unsigned char b14w = ((unsigned char*)fb_mono_base)[wall_y  * fb_mono_rowbytes + cx14];
+            unsigned char b0f  = ((unsigned char*)fb_mono_base)[floor_y * fb_mono_rowbytes + cx0];
+            doom_log("PROBE_B: cx0_wall=0x%02X cx14_wall=0x%02X cx0_floor=0x%02X (wy=%d fy=%d cx0=%d cx14=%d)\r",
+                     b0w, b14w, b0f, wall_y, floor_y, cx0, cx14);
+            probe_b_logged = 1;
         }
     }
 

@@ -15,7 +15,8 @@
       "Bash(chmod +x:*)",
       "Bash(git init:*)",
       "Bash(wc:*)",
-      "WebFetch(domain:doomwiki.org)"
+      "WebFetch(domain:doomwiki.org)",
+      "Bash(python3:*)"
     ]
   }
 }

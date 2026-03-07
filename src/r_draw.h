@@ -37,7 +37,7 @@ extern fixed_t		dc_iscale;
 extern fixed_t		dc_texturemid;
 
 // first pixel in a column
-extern byte*		dc_source;		
+extern byte*		dc_source;
 
 
 // The span blitting interface.
@@ -49,10 +49,13 @@ void 	R_DrawColumnLow (void);
 // Direct 1-bit mono renderers (Phase 4 — write straight to framebuffer).
 void	R_DrawColumn_Mono (void);
 void	R_DrawColumnLow_Mono (void);
+void	R_DrawColumnQuadLow_Mono (void);   /* detailshift=2: 4px-wide columns */
+
 void	R_DrawFuzzColumn_Mono (void);
 void	R_DrawTranslatedColumn_Mono (void);
 void	R_DrawSpan_Mono (void);
 void	R_DrawSpanLow_Mono (void);
+void	R_DrawSpanQuadLow_Mono (void);     /* detailshift=2: 4px-wide spans */
 
 // The Spectre/Invisibility effect.
 void 	R_DrawFuzzColumn (void);

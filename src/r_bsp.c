@@ -348,7 +348,7 @@ void R_AddLine (seg_t*	line)
     
 				
   clippass:
-    R_ClipPassWallSegment (x1, x2-1);	
+    R_ClipPassWallSegment (x1, x2-1);
     return;
 		
   clipsolid:

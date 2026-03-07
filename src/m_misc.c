@@ -291,7 +291,7 @@ default_t	defaults[] =
     {"halfline",        &opt_halfline,      1},
     {"affinetex",       &opt_affine_texcol, 0},
     {"solidfloor",      &opt_solidfloor,    0},
-    /* solidfloor_gray: 0=white 1=25% 2=50% 3=75% 4=black */
+    /* solidfloor_gray: 0=white 1=25% 2=50% 3=~88% 4=black */
     {"solidfloor_gray", &solidfloor_gray,   0},
     /* fog_scale: distance fog threshold in fixed_t units (0=off).
      * Wall/sprite columns with scale < fog_scale use solid background fill.

@@ -741,12 +741,20 @@ void R_ExecuteSetViewSize (void)
 	    transcolfunc = R_DrawTranslatedColumn_Mono;
 	    spanfunc     = R_DrawSpan_Mono;
 	}
-	else
+	else if (detailshift == 1)
 	{
 	    colfunc    = basecolfunc = R_DrawColumnLow_Mono;
 	    fuzzcolfunc  = R_DrawFuzzColumn_Mono;
 	    transcolfunc = R_DrawTranslatedColumn_Mono;
 	    spanfunc     = R_DrawSpanLow_Mono;
+	}
+	else
+	{
+	    /* detailshift=2: 4px-wide columns/spans, ~4× fewer pixels to render */
+	    colfunc    = basecolfunc = R_DrawColumnQuadLow_Mono;
+	    fuzzcolfunc  = R_DrawFuzzColumn_Mono;
+	    transcolfunc = R_DrawTranslatedColumn_Mono;
+	    spanfunc     = R_DrawSpanQuadLow_Mono;
 	}
     }
 
@@ -967,17 +975,15 @@ void R_RenderPlayerView (player_t* player)
 	    if (opt_solidfloor && fb_mono_base && scaledviewwidth > 0) {
 		/* Fill pattern table [gray_level][row_group], row_group=(fy>>1)&3.
 		 * Scanline-doubling pairs rows, so each group of 2 screen rows shares
-		 * one fill byte.  Level 3 (75%) cycles four rotations of 0xEE so the
-		 * two white pixels per byte shift one column left every 2 rows —
-		 * eliminating the vertical-stripe artifact of a constant fill byte.
-		 * All four 75% bytes have exactly 6 bits set → true 75% density.
-		 *   0xEE=11101110 white@col3,7   0xDD=11011101 white@col2,6
-		 *   0xBB=10111011 white@col1,5   0x77=01110111 white@col0,4 */
+		 * one fill byte.  Patterns cycle over 4 row groups to avoid vertical
+		 * stripes.  Level 3 (~88%): 1 white pixel per 8 shifted diagonally.
+		 *   0x7F=01111111 white@col7   0xBF=10111111 white@col6
+		 *   0xDF=11011111 white@col5   0xEF=11101111 white@col4  */
 		static const unsigned char sfill[5][4] = {
 		    {0x00,0x00,0x00,0x00},  /* 0: white          */
 		    {0x11,0x11,0x11,0x11},  /* 1: 25% light gray */
 		    {0xAA,0xAA,0xAA,0xAA},  /* 2: 50% mid gray   */
-		    {0xEE,0xDD,0xBB,0x77},  /* 3: 75% dithered   */
+		    {0x7F,0xBF,0xDF,0xEF},  /* 3: ~88% dark gray  */
 		    {0xFF,0xFF,0xFF,0xFF},  /* 4: black          */
 		};
 		int glevel = solidfloor_gray;
@@ -1017,6 +1023,10 @@ void R_RenderPlayerView (player_t* player)
 			 viewwindowx, viewwindowy, viewwidth, viewheight);
 	    }
 	    if (prev_menuactive && !menuactive && fb_mono_base) {
+		/* Re-run view size setup so Mono colfuncs are selected instead of
+		 * the 8-bit fallbacks that R_ExecuteSetViewSize chose while the
+		 * menu was open. */
+		setsizeneeded = true;
 		doom_log("RRV: CLEAR fb view area (menu dismissed) scvw=%d\r",
 			 scaledviewwidth);
 		int x_byte = (viewwindowx + fb_mono_xoff) >> 3;
@@ -1081,6 +1091,33 @@ void R_RenderPlayerView (player_t* player)
 		    + (viewwindowy + ey + fb_mono_yoff) * fb_mono_rowbytes + x_byte;
 		memcpy(even_row + fb_mono_rowbytes, even_row, n_bytes);
 	    }
+	}
+    }
+
+    /* PROBE A: read back two fb bytes after all rendering (post scanline-double).
+     * Byte at center row (wall area) and bottom row (floor area).
+     * If wall_byte == 0xFF, column renders did NOT reach this location.
+     * If wall_byte is dithered (e.g. 0xAF/0x5F), renders are working. */
+    {
+	extern void *fb_mono_base;
+	extern int   fb_mono_rowbytes;
+	extern int   fb_mono_xoff;
+	extern int   fb_mono_yoff;
+	static int probe_a_logged = 0;
+	/* Guard: only fire during actual gameplay (not menu, not pre-game frames).
+	 * Read bytes at dc_x=0 (byte cx0) and dc_x=14 (byte cx14) of center row.
+	 * dc_x=14 => fb_x=(14<<2)+viewwindowx+fb_mono_xoff => byte (fb_x>>3). */
+	if (!probe_a_logged && detailshift == 2 && fb_mono_base && !menuactive && gametic > 0) {
+	    int cx0   = (viewwindowx + fb_mono_xoff) >> 3;          /* dc_x=0  byte */
+	    int cx14  = ((14<<2) + viewwindowx + fb_mono_xoff) >> 3;/* dc_x=14 byte */
+	    int wall_y  = viewwindowy + viewheight/2 + fb_mono_yoff;
+	    int floor_y = viewwindowy + viewheight - 2 + fb_mono_yoff;
+	    unsigned char b0w  = ((unsigned char*)fb_mono_base)[wall_y  * fb_mono_rowbytes + cx0];
+	    unsigned char b14w = ((unsigned char*)fb_mono_base)[wall_y  * fb_mono_rowbytes + cx14];
+	    unsigned char b0f  = ((unsigned char*)fb_mono_base)[floor_y * fb_mono_rowbytes + cx0];
+	    doom_log("PROBE_A: cx0_wall=0x%02X cx14_wall=0x%02X cx0_floor=0x%02X (wy=%d fy=%d cx0=%d cx14=%d ma=%d gt=%ld)\r",
+		     b0w, b14w, b0f, wall_y, floor_y, cx0, cx14, (int)menuactive, (long)gametic);
+	    probe_a_logged = 1;
 	}
     }
 }

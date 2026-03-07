@@ -83,6 +83,13 @@ extern int opt_affine_texcol;
 extern int opt_halfline;
 extern int opt_solidfloor;
 extern int fog_scale;
+
+/* BSP sub-profiling (60Hz ticks, reset by d_main.c every 35 game tics).
+ *   prof_r_segs     = number of R_StoreWallRange calls (visible wall segs rendered)
+ *   prof_r_seg_loop = time spent inside R_RenderSegLoop (per-column drawing)
+ * Derived in log: bsp - seg_loop = BSP traversal + per-seg setup overhead. */
+long prof_r_segs     = 0;
+long prof_r_seg_loop = 0;
 fixed_t		rw_midtexturemid;
 fixed_t		rw_toptexturemid;
 fixed_t		rw_bottomtexturemid;
@@ -351,7 +358,7 @@ void R_RenderSegLoop (void)
 	    if (!in_fog && dc_yh >= dc_yl + lod_min_height)
 	    {
 		dc_source = R_GetColumn(midtexture,texturecolumn);
-		colfunc ();
+		colfunc();
 	    }
 	    ceilingclip[rw_x] = viewheight;
 	    floorclip[rw_x] = -1;
@@ -377,7 +384,7 @@ void R_RenderSegLoop (void)
 		    if (!in_fog && mid >= yl + lod_min_height)
 		    {
 			dc_source = R_GetColumn(toptexture,texturecolumn);
-			colfunc ();
+			colfunc();
 		    }
 		    ceilingclip[rw_x] = mid;
 		}
@@ -411,7 +418,7 @@ void R_RenderSegLoop (void)
 		    {
 			dc_source = R_GetColumn(bottomtexture,
 						texturecolumn);
-			colfunc ();
+			colfunc();
 		    }
 		    floorclip[rw_x] = mid;
 		}
@@ -460,7 +467,8 @@ R_StoreWallRange
 
     // don't overflow and crash
     if (ds_p == &drawsegs[MAXDRAWSEGS])
-	return;		
+	return;
+    prof_r_segs++;
 		
 #ifdef RANGECHECK
     if (start >=viewwidth || start > stop)
@@ -492,9 +500,9 @@ R_StoreWallRange
     rw_stopx = stop+1;
     
     // calculate scale at both ends and step
-    ds_p->scale1 = rw_scale = 
+    ds_p->scale1 = rw_scale =
 	R_ScaleFromGlobalAngle (viewangle + xtoviewangle[start]);
-    
+
     if (stop > start )
     {
 	ds_p->scale2 = R_ScaleFromGlobalAngle (viewangle + xtoviewangle[stop]);
@@ -814,9 +822,10 @@ R_StoreWallRange
     if (markfloor)
 	floorplane = R_CheckPlane (floorplane, rw_x, rw_stopx-1);
 
+    { long _slt = I_GetMacTick();
     R_RenderSegLoop ();
+    prof_r_seg_loop += I_GetMacTick() - _slt; }
 
-    
     // save sprite clipping info
     if ( ((ds_p->silhouette & SIL_TOP) || maskedtexture)
 	 && !ds_p->sprtopclip)

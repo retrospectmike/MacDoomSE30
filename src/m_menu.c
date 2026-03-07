@@ -955,7 +955,7 @@ void M_DrawOptions(void)
     V_DrawPatchDirect (108,15,0,W_CacheLumpName("M_OPTTTL",PU_CACHE));
 	
     V_DrawPatchDirect (OptionsDef.x + 175,OptionsDef.y+LINEHEIGHT*detail,0,
-		       W_CacheLumpName(detailNames[detailLevel],PU_CACHE));
+		       W_CacheLumpName(detailNames[detailLevel < 2 ? detailLevel : 1],PU_CACHE));
 
     V_DrawPatchDirect (OptionsDef.x + 120,OptionsDef.y+LINEHEIGHT*messages,0,
 		       W_CacheLumpName(msgNames[showMessages],PU_CACHE));
@@ -1132,20 +1132,13 @@ void M_ChangeSensitivity(int choice)
 
 void M_ChangeDetail(int choice)
 {
+    static const char *detailMsgs[3] = { "HIGH DETAIL", "LOW DETAIL", "QUAD DETAIL" };
     choice = 0;
-    detailLevel = 1 - detailLevel;
-
-    // FIXME - does not work. Remove anyway?
-    fprintf( stderr, "M_ChangeDetail: low detail mode n.a.\n");
-
-    return;
-    
-    /*R_SetViewSize (screenblocks, detailLevel);
-
-    if (!detailLevel)
-	players[consoleplayer].message = DETAILHI;
-    else
-	players[consoleplayer].message = DETAILLO;*/
+    detailLevel = (detailLevel + 1) % 3;   /* cycle: HIGH(0) → LOW(1) → QUAD(2) → HIGH */
+    R_SetViewSize (screenblocks, detailLevel);
+    players[consoleplayer].message = detailMsgs[detailLevel];
+    doom_log("M_ChangeDetail: detailLevel=%d\r", detailLevel);
+    I_MacBeep (detailLevel + 1);            /* 1 beep=HIGH, 2=LOW, 3=QUAD */
 }
 
 
