@@ -42,7 +42,20 @@ rcsid[] = "$Id: r_bsp.c,v 1.4 1997/02/03 22:45:12 b1 Exp $";
 
 //#include "r_local.h"
 
+extern int     fog_scale;   /* d_main.c: distance fog threshold (0=off) */
+extern fixed_t projection;  /* r_main.c: screen projection distance (centerxfrac) */
+extern int     detailshift; /* r_main.c: 0=high, 1=low, 2=quad-low detail */
 
+/* BSP subtrees culled by fog distance.  Reset by d_main.c every 35 tics. */
+long prof_r_bbox_fog = 0;
+
+/* Precomputed fog distance threshold in map units.
+ * = (centerx << detailshift) * FRACUNIT / fog_scale
+ * Any Chebyshev distance > fog_bbox_thresh_u means the nearest wall in this
+ * BSP subtree has rw_scale < fog_scale (is in fog) → safe to prune.
+ * Recomputed whenever fog_scale changes (detected by comparing fog_bbox_last_scale). */
+static int fog_bbox_thresh_u   = 0;
+static int fog_bbox_last_scale = -1;
 
 seg_t*		curline;
 side_t*		sidedef;
@@ -481,6 +494,41 @@ boolean R_CheckBBox (fixed_t*	bspcoord)
     {
 	// The clippost contains the new span.
 	return false;
+    }
+
+    /* Fog bbox cull: if the nearest point of this BSP subtree's bounding box is
+     * beyond the fog distance, every wall in the subtree has rw_scale < fog_scale
+     * and is invisible.  Prune the entire subtree.
+     *
+     * Distance formula (perpendicular wall): rw_scale ≈ (projection<<detailshift)/dist
+     * → in fog when dist > (projection<<detailshift)*FRACUNIT/fog_scale
+     *   = (centerx<<detailshift) * FRACUNIT / fog_scale  [map units]
+     *
+     * We compare Chebyshev distance (max(dx,dy)) against fog_bbox_thresh_u.
+     * Chebyshev underestimates true distance → conservative (never prunes visible segs).
+     * Threshold is recomputed when fog_scale changes (cheap: one integer division). */
+    if (fog_scale > 0) {
+	fixed_t dx, dy, cdist;
+	int     cdist_u;
+
+	/* Refresh threshold when fog_scale changes. */
+	if (fog_scale != fog_bbox_last_scale) {
+	    fog_bbox_last_scale = fog_scale;
+	    /* (centerx << detailshift) * FRACUNIT / fog_scale, in map units */
+	    fog_bbox_thresh_u = ((int)(projection >> FRACBITS) << detailshift)
+	                        * (FRACUNIT / fog_scale);
+	}
+
+	dx = viewx < bspcoord[BOXLEFT]   ? bspcoord[BOXLEFT]   - viewx :
+	     viewx > bspcoord[BOXRIGHT]  ? viewx - bspcoord[BOXRIGHT]  : 0;
+	dy = viewy < bspcoord[BOXBOTTOM] ? bspcoord[BOXBOTTOM] - viewy :
+	     viewy > bspcoord[BOXTOP]    ? viewy - bspcoord[BOXTOP]    : 0;
+	cdist   = dx > dy ? dx : dy;       /* Chebyshev distance (fixed_t) */
+	cdist_u = cdist >> FRACBITS;       /* convert to integer map units */
+	if (cdist_u > fog_bbox_thresh_u) {
+	    prof_r_bbox_fog++;
+	    return false;
+	}
     }
 
     return true;

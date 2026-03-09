@@ -216,6 +216,8 @@ void R_ExecuteSetViewSize (void);
  * Render sub-profile exported from r_main.c: */
 extern long prof_r_setup, prof_r_bsp, prof_r_planes, prof_r_masked;
 extern long prof_r_segs, prof_r_seg_loop;   /* r_segs.c: seg count + segloop time */
+extern long prof_r_segs_fogged;             /* r_segs.c: segs fully fog-culled (clip-only path) */
+extern long prof_r_bbox_fog;               /* r_bsp.c:  BSP subtrees pruned by fog distance */
 extern long prof_r_pixels;                   /* r_draw.c: total pixels drawn */
 extern long prof_palette_skips;              /* i_video_mac.c: I_SetPalette no-op calls */
 extern long prof_r_quad_calls;              /* r_draw.c: R_DrawColumnQuadLow_Mono calls */
@@ -521,10 +523,11 @@ void D_DoomLoop (void)
 	      long cy_px = prof_r_pixels > 0
 		  ? (long)((long long)prof_r_seg_loop * 266667LL / prof_r_pixels)
 		  : 0;
-	      doom_log("    bsp: segs=%ld segloop=%ld trav=%ld px=%ld cy/px=%ld\r",
+	      doom_log("    bsp: segs=%ld segloop=%ld trav=%ld px=%ld cy/px=%ld fog_seg=%ld bbox=%ld\r",
 		       prof_r_segs, prof_r_seg_loop,
 		       prof_r_bsp - prof_r_seg_loop,
-		       prof_r_pixels, cy_px);
+		       prof_r_pixels, cy_px,
+		       prof_r_segs_fogged, prof_r_bbox_fog);
 	    }
 	    doom_log("  pal_skips=%ld quad_calls=%ld\r",
 		     prof_palette_skips, prof_r_quad_calls);
@@ -542,9 +545,11 @@ void D_DoomLoop (void)
 	    prof_r_bsp      = 0;
 	    prof_r_planes   = 0;
 	    prof_r_masked   = 0;
-	    prof_r_segs     = 0;
-	    prof_r_seg_loop = 0;
-	    prof_r_pixels   = 0;
+	    prof_r_segs        = 0;
+	    prof_r_seg_loop    = 0;
+	    prof_r_segs_fogged = 0;
+	    prof_r_bbox_fog    = 0;
+	    prof_r_pixels      = 0;
 	    prof_palette_skips = 0;
 	    prof_r_quad_calls  = 0;
 	    quad_dbg_done       = 0;   /* re-arm first-call debug next window */

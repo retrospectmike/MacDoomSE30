@@ -85,11 +85,17 @@ extern int opt_solidfloor;
 extern int fog_scale;
 
 /* BSP sub-profiling (60Hz ticks, reset by d_main.c every 35 game tics).
- *   prof_r_segs     = number of R_StoreWallRange calls (visible wall segs rendered)
- *   prof_r_seg_loop = time spent inside R_RenderSegLoop (per-column drawing)
+ *   prof_r_segs        = number of R_StoreWallRange calls (visible wall segs rendered)
+ *   prof_r_seg_loop    = time spent inside R_RenderSegLoop (per-column drawing)
+ *   prof_r_segs_fogged = segs where all columns were fog-culled (fast clip-only path)
  * Derived in log: bsp - seg_loop = BSP traversal + per-seg setup overhead. */
-long prof_r_segs     = 0;
-long prof_r_seg_loop = 0;
+long prof_r_segs        = 0;
+long prof_r_seg_loop    = 0;
+long prof_r_segs_fogged = 0;
+
+/* seg_all_fog: set in R_StoreWallRange when both scale endpoints are below fog_scale.
+ * Signals R_RenderSegLoop to take the clip-only fast path (no texture, no colfunc). */
+static int seg_all_fog = 0;
 fixed_t		rw_midtexturemid;
 fixed_t		rw_toptexturemid;
 fixed_t		rw_bottomtexturemid;
@@ -273,13 +279,60 @@ void R_RenderSegLoop (void)
         (!opt_solidfloor || frontsector->ceilingpic == skyflatnum);
     boolean loop_markfloor = markfloor && !opt_solidfloor;
 
+    /* Fog fast path: if BOTH scale endpoints are below fog_scale, every column in
+     * this segment is in fog.  Skip all texture/lighting/colfunc work — only update
+     * the BSP clip arrays so subsequent segs still occlude correctly. */
+    if (seg_all_fog) {
+	prof_r_segs_fogged++;
+	for ( ; rw_x < rw_stopx ; rw_x++) {
+	    yl = (topfrac+HEIGHTUNIT-1)>>HEIGHTBITS;
+	    if (yl < ceilingclip[rw_x]+1) yl = ceilingclip[rw_x]+1;
+	    if (loop_markceiling) {
+		top = ceilingclip[rw_x]+1; bottom = yl-1;
+		if (bottom >= floorclip[rw_x]) bottom = floorclip[rw_x]-1;
+		if (top <= bottom) { ceilingplane->top[rw_x] = top; ceilingplane->bottom[rw_x] = bottom; }
+	    }
+	    yh = bottomfrac>>HEIGHTBITS;
+	    if (yh >= floorclip[rw_x]) yh = floorclip[rw_x]-1;
+	    if (loop_markfloor) {
+		top = yh+1; bottom = floorclip[rw_x]-1;
+		if (top <= ceilingclip[rw_x]) top = ceilingclip[rw_x]+1;
+		if (top <= bottom) { floorplane->top[rw_x] = top; floorplane->bottom[rw_x] = bottom; }
+	    }
+	    if (midtexture) {
+		ceilingclip[rw_x] = viewheight;
+		floorclip[rw_x] = -1;
+	    } else {
+		if (toptexture) {
+		    mid = pixhigh>>HEIGHTBITS; pixhigh += pixhighstep;
+		    if (mid >= floorclip[rw_x]) mid = floorclip[rw_x]-1;
+		    ceilingclip[rw_x] = (mid >= yl) ? mid : yl-1;
+		} else {
+		    if (markceiling) ceilingclip[rw_x] = yl-1;
+		}
+		if (bottomtexture) {
+		    mid = (pixlow+HEIGHTUNIT-1)>>HEIGHTBITS; pixlow += pixlowstep;
+		    if (mid <= ceilingclip[rw_x]) mid = ceilingclip[rw_x]+1;
+		    floorclip[rw_x] = (mid <= yh) ? mid : yh+1;
+		} else {
+		    if (markfloor) floorclip[rw_x] = yh+1;
+		}
+		/* maskedtexturecol: skip — masked textures are invisible in fog */
+	    }
+	    rw_scale += rw_scalestep;
+	    topfrac += topstep;
+	    bottomfrac += bottomstep;
+	}
+	return;
+    }
+
+    /* Hoist fog_scale>0 test out of inner loop (loop-invariant boolean). */
+    int do_fog = (fog_scale > 0);
+
     for ( ; rw_x < rw_stopx ; rw_x++)
     {
-	/* Fog: columns beyond fog_scale threshold are skipped — the solidfloor
-	 * background shows through them, giving a free distance-fog effect.
-	 * BSP clip arrays (ceilingclip/floorclip) are still updated so
-	 * subsequent segments clip correctly. Only colfunc draws are skipped. */
-	int in_fog = (fog_scale > 0 && rw_scale < fog_scale);
+	/* Fog: per-column scale check (only when fog is active). */
+	int in_fog = do_fog && (rw_scale < fog_scale);
 
 	// mark floor / ceiling areas
 	yl = (topfrac+HEIGHTUNIT-1)>>HEIGHTBITS;
@@ -540,6 +593,12 @@ R_StoreWallRange
     }
     else
 	rw_iscalestep = 0;
+
+    /* All-fog check: if BOTH scale endpoints are below fog_scale, every column in
+     * this segment is in fog (scale varies linearly, so max(s1,s2) < fog_scale
+     * guarantees all intermediate values are also below fog_scale).
+     * R_RenderSegLoop takes a fast clip-only path when seg_all_fog is set. */
+    seg_all_fog = (fog_scale > 0) && (rw_scale < fog_scale) && (ds_p->scale2 < fog_scale);
     
     // calculate texture boundaries
     //  and decide if floor / ceiling marks are needed
