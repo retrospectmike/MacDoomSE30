@@ -30,15 +30,10 @@ confirmed, or ruled out. Mark status with: `[ ]` untried, `[x]` done, `[-]` trie
 
 ## Medium Impact
 
-- [ ] **R_ScaleFromGlobalAngle — reduce FixedDiv calls** — Profiled 2026-03-09: `scale`
-  counter shows this is **25–50% of BSP traversal cost** (= bsp - segloop), and 5–25% of
-  total render. Typical: 2–10 ticks/window, max 13 (at 248 segs). With ~150 segs typical,
-  saving the second call (scale2 when stop>start) could cut it by ~half. Options:
-  1. Approximate scale2 from scale1 via linear step (scale2 ≈ scale1 + N*scalestep, but
-     scalestep isn't known yet at this point — chicken-and-egg).
-  2. One FixedDiv + one FixedMul approximation for the second endpoint.
-  3. Precompute or cache scale for repeated angles.
-  Likely worth attempting; moderate complexity.
+- [x] **R_ScaleFromGlobalAngle — reduce FixedDiv calls** — **Done 2026-03-10.** Inlined
+  via `SCALE_FROM_ANGLE` macro; short-seg fast path skips scale2 when stop-start≤2.
+  Result: scale cost -40% on high-seg frames, 20–41% skip rate, FPS peak 8.4 (new Snow
+  record). `prof_r_scale_skip` counter tracks hits.
 
 - [ ] **HUD rendering cost** — Profiled 2026-03-09: `st` (ST_Drawer) = 2–9 ticks/window
   typical 3–6, runs every gameplay frame. `hu` (HU_Drawer) = 0–5, usually 0–2, spikes

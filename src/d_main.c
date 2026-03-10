@@ -219,7 +219,8 @@ extern long prof_r_segs, prof_r_seg_loop;   /* r_segs.c: seg count + segloop tim
 extern long prof_r_segs_fogged;             /* r_segs.c: segs fully fog-culled (clip-only path) */
 extern long prof_r_bbox_fog;               /* r_bsp.c:  BSP subtrees pruned by fog distance */
 extern long prof_r_pixels;                   /* r_draw.c: total pixels drawn */
-extern long prof_r_scale;                    /* r_segs.c: time in R_ScaleFromGlobalAngle */
+extern long prof_r_scale;                    /* r_segs.c: time in inlined scale computation */
+extern long prof_r_scale_skip;               /* r_segs.c: segs hitting short-seg fast path */
 extern long prof_palette_skips;              /* i_video_mac.c: I_SetPalette no-op calls */
 extern long prof_r_quad_calls;              /* r_draw.c: R_DrawColumnQuadLow_Mono calls */
 extern long prof_gticker_ptick;             /* g_game.c: time in P_Ticker */
@@ -529,11 +530,11 @@ void D_DoomLoop (void)
 	      long cy_px = prof_r_pixels > 0
 		  ? (long)((long long)prof_r_seg_loop * 266667LL / prof_r_pixels)
 		  : 0;
-	      doom_log("    bsp: segs=%ld segloop=%ld trav=%ld px=%ld cy/px=%ld fog_seg=%ld bbox=%ld scale=%ld\r",
+	      doom_log("    bsp: segs=%ld segloop=%ld trav=%ld px=%ld cy/px=%ld fog_seg=%ld bbox=%ld scale=%ld skip=%ld\r",
 		       prof_r_segs, prof_r_seg_loop,
 		       prof_r_bsp - prof_r_seg_loop,
 		       prof_r_pixels, cy_px,
-		       prof_r_segs_fogged, prof_r_bbox_fog, prof_r_scale);
+		       prof_r_segs_fogged, prof_r_bbox_fog, prof_r_scale, prof_r_scale_skip);
 	    }
 	    doom_log("  hud: st=%ld hu=%ld menu=%ld\r",
 		     prof_hud_st, prof_hud_hu, prof_hud_mn);
@@ -559,6 +560,7 @@ void D_DoomLoop (void)
 	    prof_r_bbox_fog    = 0;
 	    prof_r_pixels      = 0;
 	    prof_r_scale       = 0;
+	    prof_r_scale_skip  = 0;
 	    prof_palette_skips = 0;
 	    prof_r_quad_calls  = 0;
 	    prof_gticker_ptick = 0;

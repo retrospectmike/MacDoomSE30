@@ -10,12 +10,37 @@ Newest entries at top. Add new entries here after each significant change.
 
 ---
 
+## 2026-03-10 — R_ScaleFromGlobalAngle Inline + Short-Seg Skip (r_segs.c, r_main.c)
+**Emulator: Snow**
+**Commit: (uncommitted)**
+
+Two changes combined:
+1. **Inlined `R_ScaleFromGlobalAngle`** into `R_StoreWallRange` via `SCALE_FROM_ANGLE` macro —
+   eliminates two function-call overheads per seg (prologue/epilogue/branch on 68030).
+2. **Short-seg fast path**: when `stop - start <= 2`, skip `scale2` computation entirely —
+   saves 3 divisions (`FixedDiv(scale2)`, `0xffffffff/scale2`, `scalestep` integer div).
+   `prof_r_scale_skip` counter added; 20–41% of segs/frame hit this path.
+
+| Metric | Before (colormap skip build) | This build |
+|--------|------------------------------|------------|
+| FPS peak | 7.6 | **8.4** (new all-time Snow record) |
+| FPS typical | 4.5–6.2 | 4.5–6.5 (more 7+ frames) |
+| scale ticks/window | 2–13 | 1–8 |
+| scale % of trav | 25–50% | 13–38% |
+| skip rate (segs) | — | 20–41%/frame |
+| cy/px typical | 48–85 | ~45–80 |
+
+~40% reduction in scale cost on high-seg frames. FPS peak 8.4 = new Snow high.
+**Verdict: keep.**
+
+---
+
 ## 2026-03-09 — Colormap/Lighting Index Cache (r_segs.c)
 **Emulator: Snow**
 **Commit: (uncommitted)**
 
 Added `last_light_index` cache in `R_RenderSegLoop`: skip `dc_colormap = walllights[index]`
-reassignment when the lighting index hasn't changed from the previous column. `rw_scale` steps
+reassignment whewn the lighting index hasn't changed from the previous column. `rw_scale` steps
 slowly across a seg, so adjacent columns often share the same `walllights[index]`. ~14–20 cycles
 saved per skipped column.
 

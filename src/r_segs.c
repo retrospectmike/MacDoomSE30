@@ -92,7 +92,8 @@ extern int fog_scale;
 long prof_r_segs        = 0;
 long prof_r_seg_loop    = 0;
 long prof_r_segs_fogged = 0;
-long prof_r_scale       = 0;  /* time in R_ScaleFromGlobalAngle (2 calls/seg) */
+long prof_r_scale       = 0;  /* time in scale computation (inlined, both endpoints) */
+long prof_r_scale_skip  = 0;  /* segs where scale2 was skipped (short-seg fast path) */
 
 /* seg_all_fog: set in R_StoreWallRange when both scale endpoints are below fog_scale.
  * Signals R_RenderSegLoop to take the clip-only fast path (no texture, no colfunc). */
@@ -563,18 +564,49 @@ R_StoreWallRange
     rw_stopx = stop+1;
     
     // calculate scale at both ends and step
-    { long _sc = I_GetMacTick();
-    ds_p->scale1 = rw_scale =
-	R_ScaleFromGlobalAngle (viewangle + xtoviewangle[start]);
-    prof_r_scale += I_GetMacTick() - _sc; }
+    /* R_ScaleFromGlobalAngle inlined here (only call site).
+     * Short segs (span <= SCALE_SKIP_THRESH) skip scale2 entirely — saves 3 expensive
+     * divisions: FixedDiv(scale2), 0xffffffff/scale2 for iscale2, and the scalestep
+     * integer div. Scale variation is <1% over <=2 columns: invisible at QUAD res. */
+#define SCALE_SKIP_THRESH 2
+#define SCALE_FROM_ANGLE(col_xv, out_scale) \
+    do { \
+        unsigned _aa = ANG90 + (col_xv); \
+        unsigned _ab = ANG90 + viewangle + (col_xv) - rw_normalangle; \
+        int _sa = finesine[_aa >> ANGLETOFINESHIFT]; \
+        int _sb = finesine[_ab >> ANGLETOFINESHIFT]; \
+        fixed_t _n = FixedMul(projection, _sb) << detailshift; \
+        fixed_t _d = FixedMul(rw_distance, _sa); \
+        if (_d > _n >> 16) { \
+            (out_scale) = FixedDiv(_n, _d); \
+            if ((out_scale) > 64*FRACUNIT) (out_scale) = 64*FRACUNIT; \
+            else if ((out_scale) < 256)    (out_scale) = 256; \
+        } else (out_scale) = 64*FRACUNIT; \
+    } while(0)
 
-    if (stop > start )
+    { long _sc = I_GetMacTick();
+    SCALE_FROM_ANGLE(xtoviewangle[start], rw_scale);
+    ds_p->scale1 = rw_scale;
+    rw_iscale = 0xffffffffu / (unsigned)rw_scale;
+
+    if (stop > start)
     {
-	{ long _sc = I_GetMacTick();
-	ds_p->scale2 = R_ScaleFromGlobalAngle (viewangle + xtoviewangle[stop]);
-	prof_r_scale += I_GetMacTick() - _sc; }
-	ds_p->scalestep = rw_scalestep =
-	    (ds_p->scale2 - rw_scale) / (stop-start);
+	if (stop - start <= SCALE_SKIP_THRESH)
+	{   /* Short seg: scale2 = scale1; skip all dependent divisions */
+	    ds_p->scale2    = rw_scale;
+	    ds_p->scalestep = rw_scalestep = 0;
+	    rw_iscalestep   = 0;
+	    prof_r_scale_skip++;
+	}
+	else
+	{   /* Full scale2 computation */
+	    fixed_t scale2;
+	    SCALE_FROM_ANGLE(xtoviewangle[stop], scale2);
+	    ds_p->scale2    = scale2;
+	    ds_p->scalestep = rw_scalestep = (scale2 - rw_scale) / (stop-start);
+	    { fixed_t iscale2 = 0xffffffffu / (unsigned)scale2;
+	      rw_iscalestep = (iscale2 - rw_iscale) / (stop - start); }
+	}
     }
     else
     {
@@ -593,20 +625,12 @@ R_StoreWallRange
 	    ds_p->scale1 = FixedDiv(projection, gxt-gyt)<<detailshift;
 	}
 #endif
-	ds_p->scale2 = ds_p->scale1;
-    }
-
-    /* Precompute iscale for linear interpolation — avoids per-column 32-bit division.
-     * rw_scale advances linearly, so 1/scale interpolates accurately for normal walls.
-     * Two divisions here replaces N divisions in the inner loop (N = stop - start + 1). */
-    rw_iscale = 0xffffffffu / (unsigned)rw_scale;
-    if (stop > start)
-    {
-	fixed_t iscale2 = 0xffffffffu / (unsigned)ds_p->scale2;
-	rw_iscalestep = (iscale2 - rw_iscale) / (stop - start);
-    }
-    else
+	ds_p->scale2  = ds_p->scale1;
 	rw_iscalestep = 0;
+    }
+    prof_r_scale += I_GetMacTick() - _sc; }
+#undef SCALE_FROM_ANGLE
+#undef SCALE_SKIP_THRESH
 
     /* All-fog check: if BOTH scale endpoints are below fog_scale, every column in
      * this segment is in fog (scale varies linearly, so max(s1,s2) < fog_scale
