@@ -218,6 +218,8 @@ extern long prof_r_setup, prof_r_bsp, prof_r_planes, prof_r_masked;
 extern long prof_r_segs, prof_r_seg_loop;   /* r_segs.c: seg count + segloop time */
 extern long prof_r_segs_fogged;             /* r_segs.c: segs fully fog-culled (clip-only path) */
 extern long prof_r_bbox_fog;               /* r_bsp.c:  BSP subtrees pruned by fog distance */
+extern long prof_r_bbox_calls;             /* r_bsp.c:  total R_CheckBBox calls */
+extern long prof_r_bbox_solidsegs;         /* r_bsp.c:  calls reaching solidsegs scan */
 extern long prof_r_pixels;                   /* r_draw.c: total pixels drawn */
 extern long prof_r_scale;                    /* r_segs.c: time in inlined scale computation */
 extern long prof_r_scale_skip;               /* r_segs.c: segs hitting short-seg fast path */
@@ -535,6 +537,9 @@ void D_DoomLoop (void)
 		       prof_r_bsp - prof_r_seg_loop,
 		       prof_r_pixels, cy_px,
 		       prof_r_segs_fogged, prof_r_bbox_fog, prof_r_scale, prof_r_scale_skip);
+	      doom_log("    bbox: calls=%ld solid=%ld fog=%ld angle_rej=%ld\r",
+		       prof_r_bbox_calls, prof_r_bbox_solidsegs, prof_r_bbox_fog,
+		       prof_r_bbox_calls - prof_r_bbox_solidsegs - prof_r_bbox_fog);
 	    }
 	    doom_log("  hud: st=%ld hu=%ld menu=%ld\r",
 		     prof_hud_st, prof_hud_hu, prof_hud_mn);
@@ -557,7 +562,9 @@ void D_DoomLoop (void)
 	    prof_r_segs        = 0;
 	    prof_r_seg_loop    = 0;
 	    prof_r_segs_fogged = 0;
-	    prof_r_bbox_fog    = 0;
+	    prof_r_bbox_fog       = 0;
+	    prof_r_bbox_calls     = 0;
+	    prof_r_bbox_solidsegs = 0;
 	    prof_r_pixels      = 0;
 	    prof_r_scale       = 0;
 	    prof_r_scale_skip  = 0;

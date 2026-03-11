@@ -40,9 +40,11 @@ confirmed, or ruled out. Mark status with: `[ ]` untried, `[x]` done, `[-]` trie
   Result: st typical 3–6 → 0–2, FPS peak 9.3 (new Snow record). Still fires on combat
   frames (face changes every ~17 tics, health/ammo changes during damage). Correct behavior.
 
-- [ ] **R_CheckBBox tighter angle rejection** — Currently does full clip array scan per
-  BSP node. Could add a screen-space angle rejection early-out for nodes clearly
-  off to one side (before the clip array walk).
+- [-] **R_CheckBBox tighter angle rejection** — Profiled 2026-03-10 (Snow + real SE/30).
+  R_CheckBBox costs ~0.05 ticks/window (<1% of trav, <0.1% of frame). 72% of calls reach
+  solidsegs scan, 27% angle-rejected — but scan itself is ≤5 loop iterations in QUAD mode
+  (64 columns). Any early-out saves ~60 cycles/call × 78-203 calls/window = negligible.
+  Not worth implementing.
 
 ---
 

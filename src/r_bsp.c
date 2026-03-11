@@ -48,6 +48,9 @@ extern int     detailshift; /* r_main.c: 0=high, 1=low, 2=quad-low detail */
 
 /* BSP subtrees culled by fog distance.  Reset by d_main.c every 35 tics. */
 long prof_r_bbox_fog = 0;
+/* Total R_CheckBBox calls and those reaching the solidsegs scan. */
+long prof_r_bbox_calls    = 0;
+long prof_r_bbox_solidsegs = 0;
 
 /* Precomputed fog distance threshold in map units.
  * = (centerx << detailshift) * FRACUNIT / fog_scale
@@ -412,6 +415,8 @@ boolean R_CheckBBox (fixed_t*	bspcoord)
     int			sx1;
     int			sx2;
     
+    prof_r_bbox_calls++;
+
     // Find the corners of the box
     // that define the edges from current viewpoint.
     if (viewx <= bspcoord[BOXLEFT])
@@ -482,9 +487,11 @@ boolean R_CheckBBox (fixed_t*	bspcoord)
 
     // Does not cross a pixel.
     if (sx1 == sx2)
-	return false;			
+	return false;
     sx2--;
-	
+
+    prof_r_bbox_solidsegs++;
+
     start = solidsegs;
     while (start->last < sx2)
 	start++;
