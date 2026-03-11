@@ -110,6 +110,13 @@ static const struct { int macKey; int doomKey; } kKeyTable[] = {
     {0x1B, KEY_MINUS}, {0x18, KEY_EQUALS},
     {0x71, KEY_PAUSE},
     {0x10, 'y'}, {0x2D, 'n'},
+    /* letters for cheat codes (IDDQD, IDKFA, etc.) */
+    {0x00, 'a'}, {0x0B, 'b'}, {0x08, 'c'}, {0x02, 'd'},
+    {0x0E, 'e'}, {0x03, 'f'}, {0x05, 'g'}, {0x04, 'h'},
+    {0x22, 'i'}, {0x26, 'j'}, {0x28, 'k'}, {0x25, 'l'},
+    {0x2E, 'm'}, {0x1F, 'o'}, {0x23, 'p'}, {0x0C, 'q'},
+    {0x0F, 'r'}, {0x01, 's'}, {0x11, 't'}, {0x20, 'u'},
+    {0x09, 'v'}, {0x0D, 'w'}, {0x07, 'x'}, {0x06, 'z'},
     {-1, 0}
 };
 
@@ -175,6 +182,9 @@ void I_PollMacInput(void)
             doom_evt.type  = ev_keydown;
             doom_evt.data1 = kKeyTable[i].doomKey;
             D_PostEvent(&doom_evt);
+            if (kKeyTable[i].doomKey >= 'a' && kKeyTable[i].doomKey <= 'z')
+                doom_log("KEY: mac=0x%02x doom='%c'(0x%02x)\r",
+                         kKeyTable[i].macKey, kKeyTable[i].doomKey, kKeyTable[i].doomKey);
         } else if (!is_down && was_down) {
             doom_evt.type  = ev_keyup;
             doom_evt.data1 = kKeyTable[i].doomKey;

@@ -20,7 +20,11 @@ hello_world/
 emulator/shared/DoomSE30.bin
 emulator/serial_debug.txt
 emulator/disks/backups/
+emulator/*
 
 # macOS
 .DS_Store
 **/.DS_Store
+
+#wad files
+*.wad

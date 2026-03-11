@@ -53,6 +53,10 @@ cht_CheckCheat
 	for (i=0;i<256;i++) cheat_xlate_table[i] = SCRAMBLE(i);
     }
 
+    /* Non-ASCII keys (movement, arrows, F-keys) must not reset sequences */
+    if ((unsigned char)key >= 128)
+	return 0;
+
     if (!cht->p)
 	cht->p = cht->sequence; // initialize if first time
 
