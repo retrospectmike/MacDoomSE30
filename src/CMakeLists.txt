@@ -89,12 +89,22 @@ set(DOOM_SOURCES
 
     # Resources
     doom.r
+    doom_mike.r
 )
 
-add_application(DoomSE30
-    ${DOOM_SOURCES}
-    CONSOLE
-)
+if(DOOM_RELEASE_BUILD)
+    # Release: no Retro68 console window — suppress it by omitting CONSOLE
+    add_application(DoomSE30
+        ${DOOM_SOURCES}
+    )
+    target_compile_definitions(DoomSE30 PRIVATE DOOM_RELEASE_BUILD=1)
+else()
+    # Debug: CONSOLE enables the Retro68 console window for printf output
+    add_application(DoomSE30
+        ${DOOM_SOURCES}
+        CONSOLE
+    )
+endif()
 
 # d_main.c is startup/loop code, not a hot path.
 # -O3 -fomit-frame-pointer on a large translation unit causes GCC 68k

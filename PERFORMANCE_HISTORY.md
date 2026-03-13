@@ -10,6 +10,42 @@ Newest entries at top. Add new entries here after each significant change.
 
 ---
 
+## 2026-03-13 — Release Build + Blit Narrowing + Polish Pass
+**Emulator: Snow (release build, DOOM_RELEASE_BUILD=1)**
+**Commit: (this session)**
+
+Baseline performance snapshot taken from Snow emulator running the release build (no
+Retro68 console window) after all polish work this session. Profiling run: ~90 frames.
+
+| Metric | Value |
+|--------|-------|
+| FPS median | **6.4** |
+| FPS mean | 6.6 |
+| FPS peak | **10.0** |
+| FPS floor | 3.8 |
+| Top cost: segloop | ~38.5 ms/frame |
+| Top cost: blit | ~38.5 ms/frame |
+| Scale skip rate | 22.8% of segs |
+| P_Ticker share of logic | ~82% |
+| Fog effective cull rate | ~5% |
+
+Blit and segloop now roughly tied as the frame's dominant costs. The blit narrowing
+landed this session (40 bytes/row instead of 64) — expected ~+0.8 FPS gain not yet
+captured in this log. Fog culling at ~5% reflects conservative fog_scale setting;
+heavier fog significantly reduces segloop cost.
+
+Key changes this session:
+- Release build (no console): removes Retro68 console window overhead and code size
+- Double-buffer flip narrowed to 40 bytes/row (game area only, was 64 bytes/row)
+- Non-gameplay blit path: uniform `blit8_sbar_thresh` across full screen
+- Splash screen with animated PICT cycle added (`i_main_mac.c`)
+- Menu bar hide/restore around gameplay; black fullscreen background window
+- Clean exit via longjmp/ExitToShell architecture (no artifacts on desktop)
+- Sprite fog distance fixed for QUAD mode; explosion sprites always visible at enemy range
+- idclev cheat fixed for doom2.wad
+
+---
+
 ## 2026-03-10 — ST_Drawer Dirty-Skip (st_stuff.c)
 **Emulator: Snow**
 **Commit: (uncommitted)**

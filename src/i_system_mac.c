@@ -12,6 +12,8 @@
 #include <Sound.h>
 
 #include <stdlib.h>
+#include <setjmp.h>
+extern jmp_buf doom_quit_jmp;
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
@@ -225,9 +227,9 @@ void I_Quit(void)
     doom_log("I_Quit: I_ShutdownGraphics done\n");
     doom_log_flush();
     M_SaveDefaults();
-    doom_log("I_Quit: M_SaveDefaults done — exiting\n");
+    doom_log("I_Quit: M_SaveDefaults done — returning to main\n");
     if (g_logfile) { fclose(g_logfile); g_logfile = NULL; }
-    ExitToShell();   /* bypasses C++ destructor chain which can crash on exit */
+    longjmp(doom_quit_jmp, 1);
 }
 
 byte *I_AllocLow(int length)
@@ -270,7 +272,7 @@ void I_Error(char *error, ...)
 
     D_QuitNetGame();
     I_ShutdownGraphics();
-    ExitToShell();
+    longjmp(doom_quit_jmp, 2);   /* fatal error — unwind to main() for clean exit */
 }
 
 void I_StartFrame(void)

@@ -30,6 +30,19 @@ confirmed, or ruled out. Mark status with: `[ ]` untried, `[x]` done, `[-]` trie
 
 ## Medium Impact
 
+- [x] **Double-buffer flip narrowing** — Full-row memcpy (64 bytes/row) overwrote
+  the black background window margins left/right of the 320-wide game area. Narrowed
+  to 40 bytes/row (game area only, starting at `xoff>>3`). Eliminates white border
+  artifacts in release builds. Expected ~+0.8 FPS from fewer memory writes. (2026-03-13)
+
+- **Blit bimodality** — Profiled 2026-03-13: blit cost is bimodal — ~7 ms on frames
+  where `is_direct=1` (gameplay, GS_LEVEL, direct render path) and ~38.5 ms on frames
+  where the full `blit8_sbar_thresh` path fires (menus, intermission, wipe frames).
+  The 38.5 ms blit cost is now tied with segloop as the top per-frame cost in heavy
+  gameplay. Further reduction would require either a faster threshold blit or skipping
+  the full-screen blit on unchanged non-game frames (dirty-rect tracking).
+
+
 - [x] **R_ScaleFromGlobalAngle — reduce FixedDiv calls** — **Done 2026-03-10.** Inlined
   via `SCALE_FROM_ANGLE` macro; short-seg fast path skips scale2 when stop-start≤2.
   Result: scale cost -40% on high-seg frames, 20–41% skip rate, FPS peak 8.4 (new Snow

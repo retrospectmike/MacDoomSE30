@@ -1,9 +1,11 @@
 /*
  * i_main_mac.c — Mac entry point for Doom SE/30
  *
- * Initializes the Mac Toolbox, shows a WAD file picker dialog,
- * sets the working directory to the WAD's folder, then hands off
- * to D_DoomMain.
+ * Initializes the Mac Toolbox, sets the working directory to the app folder,
+ * shows a loading splash screen, then hands off to D_DoomMain.
+ *
+ * IdentifyVersion() in d_main.c auto-detects doom2.wad / doom.wad / doom1.wad
+ * from the current directory — no WAD picker needed.
  */
 
 #include <QuickDraw.h>
@@ -14,13 +16,15 @@
 #include <Memory.h>
 #include <Processes.h>
 #include <Files.h>
-#include <StandardFile.h>
 
 #include "doomdef.h"
 #include "m_argv.h"
-
+#include <stdlib.h>
+#include <setjmp.h>
 extern void D_DoomMain(void);
 extern void I_OpenLog(void);
+
+jmp_buf doom_quit_jmp;   /* longjmp target — I_Quit() jumps here to return to main() */
 
 /*
  * Set the Mac default volume+directory to a given FSSpec's parent folder.
@@ -57,39 +61,86 @@ static void SetCWDToAppFolder(void)
         SetDefaultDirToFolder(appSpec.vRefNum, appSpec.parID);
 }
 
-/*
- * PickWADFile — show a standard Open dialog so the user can locate
- * their DOOM WAD file. Sets the default directory to the WAD's folder
- * so that Doom's IdentifyVersion() can find it by name.
- *
- * Returns true if a file was selected.
- */
-static int PickWADFile(void)
+void CenterDialog(DialogPtr dialog)
 {
-    StandardFileReply reply;
-    SFTypeList        typeList;   /* unused — show all files */
+    Rect    dialogRect;
+    Rect    screenRect;
+    short   dialogWidth, dialogHeight;
+    short   screenWidth, screenHeight;
+    short   newLeft, newTop;
 
-    /* Show "Open" dialog — no type filter, show all files */
-    StandardGetFile(NULL, -1, typeList, &reply);
+    // Get dialog bounds
+    dialogRect = dialog->portRect;
+    dialogWidth = dialogRect.right - dialogRect.left;
+    dialogHeight = dialogRect.bottom - dialogRect.top;
 
-    if (!reply.sfGood)
-        return 0;   /* user cancelled */
+    // Get screen bounds (main screen)
+    screenRect = qd.screenBits.bounds;
+    screenWidth = screenRect.right - screenRect.left;
+    screenHeight = screenRect.bottom - screenRect.top;
 
-    /* Set default directory to the folder containing the chosen WAD */
-    SetDefaultDirToFolder(reply.sfFile.vRefNum, reply.sfFile.parID);
+    // Calculate centered position
+    newLeft = (screenWidth - dialogWidth) / 2;
+    newTop = (screenHeight - dialogHeight) / 2;
 
-    /* Log the selection */
-    doom_log("WAD picker: selected '%.*s' (vRefNum=%d parID=%ld)\n",
-             (int)reply.sfFile.name[0], &reply.sfFile.name[1],
-             (int)reply.sfFile.vRefNum, reply.sfFile.parID);
+    // Adjust for menu bar (move down a bit)
+    newTop += 20;
 
-    return 1;
+    // Move the dialog
+    MoveWindow((WindowPtr)dialog, newLeft, newTop, false);
+}
+
+#define rDLOG 128           // Resource ID for our startup dialog
+#define kButtonOK 1         // OK button
+#define kPictureItem 3      // Picture item
+#define kFirstPICT 128      // First PICT resource ID
+#define kLastPICT 133       // Last PICT resource ID (adjust as needed)
+
+void UpdatePictureItem(DialogPtr dialog, short itemNum, short pictID)
+{
+    Handle      itemHandle;
+    short       itemType;
+    Rect        itemRect;
+    PicHandle   picture;
+
+    // Get the dialog item
+    GetDialogItem(dialog, itemNum, &itemType, &itemHandle, &itemRect);
+
+    // Load the new PICT resource
+    picture = GetPicture(pictID);
+
+    if (picture != nil)
+    {
+        // Update the item's handle to point to the new picture
+        SetDialogItem(dialog, itemNum, itemType, (Handle)picture, &itemRect);
+
+        // Force redraw of the item
+        InvalRect(&itemRect);
+    }
+}
+
+// Generate random interval in ticks (between 0.1 and 2.0 seconds)
+// 60 ticks = 1 second
+// 0.1 sec = 6 ticks, 2.0 sec = 120 ticks
+unsigned long GetRandomInterval(void)
+{
+// Random number between 6 and 120 ticks
+return 6 + (Random() & 0x7FFF) % 115;  // 6 to 120 inclusive
 }
 
 static char *mac_argv[] = { "DoomSE30" };
 
 int main(void)
 {
+    DialogPtr       dialog;
+    short           itemHit;
+    short           currentPictID = kFirstPICT;
+    unsigned long   lastUpdateTick;
+    unsigned long   currentTick;
+    unsigned long   nextUpdateInterval;
+    Boolean         gotEvent;
+    WindowPtr       bg_window;   /* fullscreen black background window */
+
     /* Standard Mac Toolbox init — MUST come before any QuickDraw/printf */
     MaxApplZone();
     MoreMasters();
@@ -105,31 +156,127 @@ int main(void)
     InitDialogs(nil);
     InitCursor();
 
+    FlushEvents(everyEvent, 0); //for dialog box
+
     /* Open debug log and set CWD to the app folder as a baseline */
     SetCWDToAppFolder();
     I_OpenLog();
 
-    doom_log("=== Doom SE/30 starting ===\n");
+    doom_log("=== Doom SE/30 starting ===\r");
 
-    /* Ask the user to pick their WAD file.
-     * This also sets the default directory so IdentifyVersion() finds it. */
-    if (!PickWADFile()) {
-        /* User cancelled — fall back to app folder (doom1.wad must be there) */
-        doom_log("WAD picker cancelled — trying app folder\n");
+        // Load dialog from resource file
+    dialog = GetNewDialog(rDLOG,            // resource ID
+                         nil,                // storage (nil = allocate)
+                         (WindowPtr)-1);     // in front of all windows
+
+    if (dialog == nil)
+    {
+        ExitToShell();  // Quit if dialog resource not found
     }
 
-    /* Open the console window NOW with a loading message so the user knows
-     * the app is alive during the ~15 second WAD load + init sequence.
-     * The first printf() call opens the Retro68 ConsoleWindow. */
-    printf("Doom SE/30: loading WAD file, please wait...\n");
+    // Center the dialog before showing it
+    CenterDialog(dialog);
+    // Show the dialog
+    ShowWindow(dialog);
+    SetPort(dialog);
+    // Seed random number generator with current time
+    GetDateTime((unsigned long *)&currentTick);
+    srand(currentTick);
+    // Initialize timing
+    lastUpdateTick = TickCount();
+    nextUpdateInterval = GetRandomInterval();
+
+    // Dialog event loop
+    Boolean done = false;
+    while (!done)
+    {
+        EventRecord event;
+
+        // Use WaitNextEvent with short sleep
+        gotEvent = WaitNextEvent(everyEvent, &event, 15, nil);
+
+        // Check if it's time to update
+        currentTick = TickCount();
+
+        if (currentTick - lastUpdateTick >= nextUpdateInterval)
+        {
+            // Increment to next PICT
+            currentPictID++;
+
+            // Wrap around if we exceed the last PICT
+            if (currentPictID > kLastPICT)
+                currentPictID = kFirstPICT;
+
+            // Update the picture display
+            UpdatePictureItem(dialog, kPictureItem, currentPictID);
+
+            // Reset timer with new random interval
+            lastUpdateTick = currentTick;
+            nextUpdateInterval = GetRandomInterval();
+        }
+
+        // Handle dialog events if we got one
+        if (gotEvent && IsDialogEvent(&event))
+        {
+            if (DialogSelect(&event, &dialog, &itemHit))
+            {
+                switch (itemHit)
+                {
+                    case kButtonOK:
+                        done = true;
+                        break;
+                }
+            }
+        }
+    }
+
+    DisposeDialog(dialog);
+
+    /* Hide menu bar: zero the MBarHeight low-memory global, then explicitly
+     * paint the top rows black via a direct screen port — DrawMenuBar() alone
+     * doesn't erase existing menu bar pixels, and the WM clips windows to y>=20. */
+    *(short *)0x0BAA = 0;
+    DrawMenuBar();
+    {
+        GrafPort  screenPort;
+        Rect      menuBarRect;
+        OpenPort(&screenPort);
+        SetPort(&screenPort);
+        menuBarRect.top    = 0;
+        menuBarRect.left   = 0;
+        menuBarRect.bottom = 20;
+        menuBarRect.right  = qd.screenBits.bounds.right;
+        FillRect(&menuBarRect, &qd.black);
+        ClosePort(&screenPort);
+    }
+
+    /* Open a fullscreen black window to give the game a clean black surround
+     * and to ensure the Window Manager repaints the desktop cleanly on exit. */
+    
+    bg_window = NewWindow(nil, &qd.screenBits.bounds, "\p", true,
+                          plainDBox, (WindowPtr)-1, false, 0);
+    if (bg_window != nil)
+    {
+        Rect local_r;
+        SetPort(bg_window);
+        local_r = bg_window->portRect;
+        FillRect(&local_r, &qd.black);
+    }
 
     /* Set up Doom's command-line argument globals */
     myargc = 1;
     myargv = mac_argv;
 
-    /* Doom's real entry point */
-    D_DoomMain();
+    /* Doom's real entry point — setjmp here so I_Quit()'s longjmp lands back */
+    if (setjmp(doom_quit_jmp) == 0)
+        D_DoomMain();
 
-    /* Should never return */
+    /* I_Quit longjmp'd here (or D_DoomMain returned) — tear down and exit cleanly */
+    /* Restore menu bar before handing back to Finder */
+    *(short *)0x0BAA = 20;
+    DrawMenuBar();
+    if (bg_window != nil)
+        DisposeWindow(bg_window);
+    ExitToShell();
     return 0;
 }

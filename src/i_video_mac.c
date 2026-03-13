@@ -460,6 +460,8 @@ void I_InitGraphics(void)
 void I_ShutdownGraphics(void)
 {
     ShowCursor();
+
+    /* Cleanup window is owned by main() — nothing to do here */
 }
 
 /* Count I_SetPalette calls skipped because palette was unchanged.
@@ -709,31 +711,29 @@ void I_FinishUpdate(void)
             }
         }
 
-        /* --- Region 4: status bar rows (always blitted — content changes) --- */
-        for (y = sbar0; y < SCREENHEIGHT; y++) {
-            const byte    *sr  = src + y * SCREENWIDTH;
-            unsigned char *dst = (unsigned char *)(fb_mono_base
-                                 + (y + yoff) * fb_mono_rowbytes) + (xoff >> 3);
-            for (x = 0; x < SCREENWIDTH; x += 8) *dst++ = blit8_sbar_thresh(sr + x);
+        /* --- Region 4: status bar rows — skipped when view fills the screen,
+         * unless do_border is set (e.g. view just shrank back from max). --- */
+        if (vy1 < sbar0 || do_border) {
+            for (y = sbar0; y < SCREENHEIGHT; y++) {
+                const byte    *sr  = src + y * SCREENWIDTH;
+                unsigned char *dst = (unsigned char *)(fb_mono_base
+                                     + (y + yoff) * fb_mono_rowbytes) + (xoff >> 3);
+                for (x = 0; x < SCREENWIDTH; x += 8) *dst++ = blit8_sbar_thresh(sr + x);
+            }
         }
 
     } else {
-        /* Non-direct (menu, wipe, intermission): full blit.
-         * last_direct=false ensures next direct frame triggers do_border=true,
+        /* Non-direct (menu, wipe, intermission, title): blit8_sbar_thresh for the
+         * entire screen — same high-contrast threshold used for the HUD.
+         * No Bayer dithering, no sbar/non-sbar split.
+         * last_direct=false ensures the next direct frame triggers do_border=true,
          * re-blitting the border after wipe/menu may have written over it. */
-        const int sbar0 = SCREENHEIGHT - SBARHEIGHT;
         for (y = 0; y < SCREENHEIGHT; y++) {
             const byte    *sr  = src + y * SCREENWIDTH;
             unsigned char *dst = (unsigned char *)(fb_mono_base
                                  + (y + yoff) * fb_mono_rowbytes) + (xoff >> 3);
-            if (y >= sbar0) {
-                for (x = 0; x < SCREENWIDTH; x += 8)
-                    *dst++ = blit8_sbar_thresh(sr + x);
-            } else {
-                const byte *br = bayer4x4[y & 3];
-                for (x = 0; x < SCREENWIDTH; x += 8)
-                    *dst++ = blit8(sr + x, br, x);
-            }
+            for (x = 0; x < SCREENWIDTH; x += 8)
+                *dst++ = blit8_sbar_thresh(sr + x);
         }
     }
 
@@ -777,13 +777,22 @@ void I_FinishUpdate(void)
         }
     }
 
-    /* Double-buffer flip: copy the completed off-screen frame to the real screen.
-     * Only copies the SCREENHEIGHT rows that Doom uses (rows yoff..yoff+199).
-     * 200 × 64 = 12,800 bytes. */
+    /* Double-buffer flip: copy only the game area columns to the real screen.
+     * Copying the full row width (64 bytes) would overwrite the black background
+     * window's flanking columns with white from the uninitialised offscreen buf.
+     * Instead copy only the 40 bytes (320px) of actual game content per row,
+     * leaving the 12-byte margins on each side untouched.
+     * 200 × 40 = 8,000 bytes — also ~37% less data than the full-row flip. */
     if (real_fb_base) {
-        memcpy((unsigned char *)real_fb_base + yoff * fb_mono_rowbytes,
-               (unsigned char *)fb_mono_base + yoff * fb_mono_rowbytes,
-               (size_t)SCREENHEIGHT * fb_mono_rowbytes);
+        int      flip_y;
+        int      col_off  = xoff >> 3;          /* byte offset of game area: 12 */
+        int      col_bytes = SCREENWIDTH >> 3;   /* game area width in bytes: 40 */
+        for (flip_y = 0; flip_y < SCREENHEIGHT; flip_y++) {
+            int row = flip_y + yoff;
+            memcpy((unsigned char *)real_fb_base + row * fb_mono_rowbytes + col_off,
+                   (unsigned char *)fb_mono_base + row * fb_mono_rowbytes + col_off,
+                   col_bytes);
+        }
     }
 }
 

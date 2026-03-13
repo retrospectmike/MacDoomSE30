@@ -704,7 +704,7 @@ ST_Responder (event_t* ev)
       }
 
       // Catch invalid maps.
-      if (epsd < 1)
+      if (gamemode != commercial && epsd < 1)
 	return false;
 
       if (map < 1)

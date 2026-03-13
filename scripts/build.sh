@@ -1,6 +1,10 @@
 #!/bin/bash
 # doom_se30 build script
 # Cross-compiles with Retro68 and deploys to Basilisk II shared folder
+#
+# Usage:
+#   bash scripts/build.sh src           # debug build (Retro68 console enabled)
+#   bash scripts/build.sh src release   # release build (no console window, DOOM_RELEASE_BUILD=1)
 
 set -e
 
@@ -14,6 +18,18 @@ BUILD_DIR="$PROJECT_DIR/build"
 # Which sub-project to build (default: hello_world)
 TARGET="${1:-hello_world}"
 TARGET_DIR="$PROJECT_DIR/$TARGET"
+
+# Release mode: pass 'release' as second arg
+MODE="${2:-debug}"
+if [ "$MODE" = "release" ]; then
+    RELEASE_FLAG="-DDOOM_RELEASE_BUILD=1"
+    BUILD_LABEL="RELEASE"
+    BUILD_TARGET_DIR="$BUILD_DIR/${TARGET}_release"
+else
+    RELEASE_FLAG=""
+    BUILD_LABEL="DEBUG"
+    BUILD_TARGET_DIR="$BUILD_DIR/$TARGET"
+fi
 
 if [ ! -f "$TOOLCHAIN" ]; then
     echo "ERROR: Retro68 toolchain not found at $TOOLCHAIN"
@@ -29,24 +45,26 @@ fi
 
 echo "=== doom_se30 build ==="
 echo "Target:    $TARGET"
+echo "Mode:      $BUILD_LABEL"
 echo "Toolchain: $TOOLCHAIN"
 echo "Output:    $SHARED_DIR"
 echo ""
 
-# Configure (only if needed)
-BUILD_TARGET_DIR="$BUILD_DIR/$TARGET"
+# Configure (always re-configure for release to ensure DOOM_RELEASE_BUILD propagates;
+# for debug, only configure if Makefile is missing)
 mkdir -p "$BUILD_TARGET_DIR"
 
-if [ ! -f "$BUILD_TARGET_DIR/Makefile" ]; then
-    echo "--- Configuring with CMake ---"
+if [ "$MODE" = "release" ] || [ ! -f "$BUILD_TARGET_DIR/Makefile" ]; then
+    echo "--- Configuring with CMake ($BUILD_LABEL) ---"
     cmake -S "$TARGET_DIR" \
           -B "$BUILD_TARGET_DIR" \
           -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN" \
+          $RELEASE_FLAG \
           2>&1
 fi
 
 # Build
-echo "--- Building ---"
+echo "--- Building ($BUILD_LABEL) ---"
 cmake --build "$BUILD_TARGET_DIR" 2>&1
 
 # Find the output binary (Retro68 produces .bin or the app directly)
@@ -61,7 +79,7 @@ BIN_FILE=$(ls "$BUILD_TARGET_DIR/"*.bin 2>/dev/null | grep -v '\.rsrc\.bin' | gr
 if [ -n "$BIN_FILE" ]; then
     cp "$BIN_FILE" "$SHARED_DIR/"
     echo ""
-    echo "--- Deployed ---"
+    echo "--- Deployed ($BUILD_LABEL) ---"
     echo "  $(basename "$BIN_FILE") → $SHARED_DIR/"
     echo ""
     echo "File is now available in the Basilisk II shared folder."
