@@ -22,7 +22,7 @@ I wanted to play Doom on my Macintosh SE/30 and I wondered if it was possible.
 ### Is it Playable?
 Yes.  At time of writing, the frame rate is reasonable for playing but additional work in not only performance but also black&white dithering and lighting settings might greatly enhance the appearance.  The current b&w appearance can at times make it difficult to play and at the moment - THERE IS NO SOUNDS YET!
 ### How?
-Though I love to tinker with these vintage Macs (see my other repos), I wanted to do something bigger and I wanted to use AI to help.  So this was a natural project to tackle and practice using AI.  I used Claude Code to help plan / build / iterate the port.  It was very helpful and did all of the coding.  Is this cheating?  That's up to you to decide.  But the result is a playable Doom on the SE/30.  Was it literally feed it the linuxdoom repo and hit Go and wait a few hours and done?  No.  I messed with it daily trying to make adjustments and find + fix bugs, intelligently implement optimizations, fight it when things didn't work, switching models to try to be efficient with usage, making suggestions on what to try, etc.  Took several weeks of burning up my subscription tokens daily to get to this point.  Surely, I would have taken much much longer to do it myself -- and some things like 68k assembly I likely would never have had the time to learn and do.
+Though I love to tinker with these vintage Macs (see my other repos), I wanted to do something bigger and I wanted to use AI to help.  So this was a natural project to tackle and practice using AI.  I used Claude Code to help plan / build / iterate the port.  It was very helpful and did most of the coding.  Is this cheating?  That's up to you to decide.  But the result is a playable Doom on the SE/30.  Was it literally feed it the linuxdoom repo and hit Go and wait a few hours and done?  **NO!**.  I messed with it daily trying to make adjustments and find + fix bugs, intelligently implement optimizations, fight it when things didn't work, switching models to try to be efficient with usage, making suggestions on what to try, and even calling out some of its more obv mistakes in code, etc.  Took several weeks of burning up my subscription tokens daily to get to this point.  Surely, I would have taken much much longer to do it myself -- and some things like 68k assembly I likely would never have had the time to learn and do.
 ### Why 64MB of RAM?
 It's easy to upgrade the SE/30 to 64MB or even 128MB of RAM.  Much easier than it is to upgrade the CPU.  So all optimizations were done assuming memory is no object, but processing is scarce.
 ### What optimizations did you execute?
@@ -40,10 +40,13 @@ The main ones you'll notice are:
 - On-target SE/30 testing for actual performance evaluation and of course real-world experience testing
 
 ## Special Thanks
-- The Macintosh SE/30 team
-- Susan Kare - because why not even more
-- Steve Wozniak - because why not
 - TinkerDifferent.com
+- The Macintosh SE/30 team
+- Steve Wozniak - because why not
+- Susan Kare - because she'd appreciate it
 - The team behind the Snow emulator, BlueSCSI, etc.
-- Users like you - who keep these machines cycling!
+- Users like you - who keep these machines booping and das lights blinkin'!
 - Peace, love, tolerance, and meditation in whatever flavor or names that float your boat!!!
+
+# Careware
+This program is care-ware. If you enjoy it, do something nice to someone today!
