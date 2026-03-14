@@ -10,7 +10,7 @@
 - [x] ~~Menu keystroke delay~~ — Fixed 2026-03-13: cache 1-bit background on first menu frame; subsequent frames restore via memcpy instead of 8000 blit8_sbar_thresh calls
 
 ## Rendering / Fog
-- [ ] Sky visibility with fog — sky can be fogged out; improve sky/fog interaction so sky remains visible
+- [ ] **Sky never fogs** — sky should be immune to fog; currently part of sky shows solidfloor fill pattern when fog is active (sharp cutoff, scales with fog distance). Two approaches tried and reverted: (1) per-column top/bot range tracking in R_RenderSegLoop + fallback pass in R_DrawPlanes; (2) per-column boolean flag + re-render of sky visplane entries at end of R_DrawPlanes. Neither produced correct results. Root cause not yet identified — sky visplane entries appear correctly written but some columns still render as fog fill.
 
 ## Stability / Exit
 - [ ] **Monitor for CHK errors on exit** (Basilisk II) — observed once after black background window work. longjmp/ExitToShell architecture seems correct; if it recurs investigate QuickDraw teardown order.
