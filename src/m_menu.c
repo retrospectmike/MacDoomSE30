@@ -1146,6 +1146,11 @@ void M_ChangeDetail(int choice)
 
 void M_SizeDisplay(int choice)
 {
+    /* In 2x pixel-scale mode, blocks=9+ would overflow the 512px screen at 2×.
+     * Cap screenSize at 5 (screenblocks=8, scaledviewwidth=256 → 512px at 2×). */
+    extern int opt_scale2x;
+    int maxSize = opt_scale2x ? 5 : 8;
+
     switch(choice)
     {
       case 0:
@@ -1156,14 +1161,14 @@ void M_SizeDisplay(int choice)
 	}
 	break;
       case 1:
-	if (screenSize < 8)
+	if (screenSize < maxSize)
 	{
 	    screenblocks++;
 	    screenSize++;
 	}
 	break;
     }
-	
+
 
     R_SetViewSize (screenblocks, detailLevel);
 }

@@ -10,6 +10,57 @@ Newest entries at top. Add new entries here after each significant change.
 
 ---
 
+## Configuration Options Reference — 2026-03-14
+
+All SE/30-specific options, their ranges, typical test values, and performance impact.
+
+| Option | Description | New? | Default | Range | Keys | Perf Impact | Typical Test Values |
+|---|---|---|---|---|---|---|---|
+| `halfline` | Renders every other row and copies it down, halving vertical pixel work | NEW | 1 (ON) | 0/1 | — | **+30–40%** render speed (when ON) | 1 |
+| `affinetex` | Affine texture mode: eliminates per-pixel perspective divide for wall textures. Textures may swim slightly on close walls but imperceptible at distance | NEW | 0 (OFF) | 0/1 | — | **+5–10%** on wall-heavy scenes (when ON) | 1 |
+| `solidfloor` | Solid gray floor/ceiling instead of textured flats. Eliminates all span drawing | NEW | 0 (OFF) | 0/1 | — | **+15–25%** render speed (when ON) | 1 |
+| `solidfloor_gray` | Gray shade used for solid floor/ceiling and distance fog fill | NEW | 0 | 0–4 | `Z` cycle | Negligible | 4 |
+| `fog_scale` | Distance fog: walls/sprites beyond threshold rendered as solid gray. Cuts render cost proportional to fog density | NEW | 0 (OFF) | 0–65536 | `` ` `` / `\` | **Up to +40%** in open areas (when ON, high fog) | 0 (off) |
+| `detailLevel` | Column pixel width. 2=QUAD (4px wide columns, 4× fewer pixels rendered). Looks blocky but dramatically faster | NEW | 2 (QUAD) | 0–2 | — | **+200–300%** at QUAD vs full-res | 2 |
+| `screenblocks` | View window size. DO NOT INCLUDE IN DIALOG BOX. Exposed via standard in-game size slider | NOT NEW | 7 | 1–11 | `-` / `+` | Moderate per step | 7 |
+| `scale2x` | 2× pixel scale. Renders at half resolution and doubles each pixel. Gives chunky retro look; costs ~24% FPS | NEW | 0 (OFF) | 0/1 | — | **−24%** FPS (when ON) | 0 |
+| `no_lighting` | Disables per-column lighting/colormap lookup. Flat uniform brightness; slightly faster column renderer | NEW | 0 (OFF) | 0/1 | `L` | **+3–5%** (when ON) | 0 |
+| **Gamma** | Brightness curve exponent. <1.0 brightens midtones; >1.0 darkens them. 0.52 is the tuned default for SE/30 monochrome | NEW | 52 (→0.52) | 5–300 (×0.01) | `O` − / `P` + | None | 52 |
+| **Black point** | Input black-point for contrast mapping. Lower = more pixels treated as black | NEW | 55 | 0–245 | `[` − / `]` + | None | 55 |
+| **White point** | Input white-point for contrast mapping. Higher = more pixels treated as white. Must stay ≥10 above black point | NEW | 160 | 10–255 | `;` − / `'` + | None | 160 |
+
+---
+
+## 2026-03-14 — 2× Pixel-Scale Mode vs Non-2× (Basilisk II)
+**Emulator: Basilisk II (debug build)**
+**Config: detailLevel=2 halfline=1 affinetex=1 solidfloor=1 solidfloor_gray=4**
+
+Head-to-head comparison. Both modes produce `scvw=256 vh=128` (RESV-confirmed) —
+render pipeline is **identical**. Performance gap is entirely in the blit/expand path.
+
+| Metric | Non-2x | 2x | Delta |
+|--------|--------|----|-------|
+| Mean FPS | **6.6** | **5.0** | −1.6 (−24%) |
+| Min FPS | 3.8 | 3.5 | −0.3 |
+| Max FPS | 10.3 | 7.2 | −3.1 |
+| Sample frames | 57 | 66 | — |
+| Blit units (typical) | 11–15 | 18–22 | **+7–9** |
+| Blit units (palette change) | 16–27 | 29–37 | +10–12 |
+| Render units | 24–62 | 23–60 | ≈0 |
+
+**Root cause:** 2× expand+flip pipeline costs ~18ms/frame:
+- `expand2x_blit`: ~16KB written (128 src rows × 2 dest rows × 64 bytes)
+- 2× flip: 64 bytes × 288 rows = **18,432 bytes** vs non-2× 40 × 200 = **8,000 bytes** (2.3×)
+
+The gap is proportionally worse in fast/open scenes (blit is larger fraction of frame time)
+and proportionally smaller in heavy/complex scenes where render dominates.
+Max FPS gap (10.3 vs 7.2) is where blit overhead dominates over an already-fast render.
+
+Note: These are Basilisk II numbers. Snow/real SE/30 will scale proportionally lower for both
+modes but the relative delta should remain ~1.5 FPS.
+
+---
+
 ## 2026-03-13 — Release Build + Blit Narrowing + Polish Pass
 **Emulator: Snow (release build, DOOM_RELEASE_BUILD=1)**
 **Commit: (this session)**

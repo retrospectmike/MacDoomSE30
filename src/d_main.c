@@ -115,6 +115,12 @@ int solidfloor_gray   = 0;
  * the solidfloor background shows through, creating a free fog effect.
  * Step size is 2048 per keypress (` to raise, \ to lower). */
 int fog_scale         = 0;
+/* 2× pixel-scale mode: render view at half resolution (QUAD blocks=8 → 256×128),
+ * expand 2× in blit to fill 512px Mac screen width exactly.
+ * Status bar displayed 1× centered (320px, 96px black bars each side).
+ * Enabled by scale2x=1 in doom.cfg or -scale2x command line. Default OFF.
+ * Max effective screenblocks is capped at 8 in this mode. */
+int opt_scale2x       = 0;
 
 extern int detailLevel;   /* defined in m_menu.c */
 
@@ -275,6 +281,14 @@ void D_Display (void)
 	  doom_log("D_Display: wipe triggered gs=%d->wgs=%d demosequence=%d\r",
 		   (int)gamestate, (int)wipegamestate, demosequence); }
 	wipe = true;
+	/* In 2x mode the view area cleared each frame is only 256×128 (the
+	 * source buffer size), leaving columns 256-319 / rows 128-199 of
+	 * screens[0] stale with title/intermission content.  Clear the whole
+	 * buffer before capturing the wipe start frame so the melt begins
+	 * from black, matching non-2x behaviour.  One-time cost at transitions
+	 * only — zero impact on gameplay frame rate. */
+	if (opt_scale2x)
+	    memset(screens[0], 0, SCREENWIDTH * SCREENHEIGHT);
 	wipe_StartScreen(0, 0, SCREENWIDTH, SCREENHEIGHT);
     }
     else
@@ -335,7 +349,10 @@ void D_Display (void)
 	I_SetPalette (W_CacheLumpName ("PLAYPAL",PU_CACHE));
 
     // see if the border needs to be initially drawn
-    if (gamestate == GS_LEVEL && oldgamestate != GS_LEVEL)
+    // In 2x mode: viewwindowx=0/viewwindowy=0, so border corner patches would be
+    // drawn at negative coordinates → "exceeds LFB" console spam.  The border
+    // content in screens[0] is also never blitted in the 2x direct path, so skip.
+    if (gamestate == GS_LEVEL && oldgamestate != GS_LEVEL && !opt_scale2x)
     {
 	viewactivestate = false;        // view was not active
 	R_FillBackScreen ();    // draw the pattern into the back screen
@@ -343,7 +360,7 @@ void D_Display (void)
     }
 
     // see if the border needs to be updated to the screen
-    if (gamestate == GS_LEVEL && !automapactive && scaledviewwidth != 320)
+    if (gamestate == GS_LEVEL && !automapactive && scaledviewwidth != 320 && !opt_scale2x)
     {
 	if (menuactive || menuactivestate || !viewactivestate)
 	    borderdrawcount = 3;
@@ -1008,6 +1025,7 @@ void D_DoomMain (void)
     devparm = M_CheckParm ("-devparm");
     if (M_CheckParm ("-halfline"))   opt_halfline      = 1;
     if (M_CheckParm ("-affinetex")) opt_affine_texcol = 1;
+    if (M_CheckParm ("-scale2x"))   opt_scale2x       = 1;
     if (M_CheckParm ("-altdeath"))
 	deathmatch = 2;
     else if (M_CheckParm ("-deathmatch"))
@@ -1217,8 +1235,8 @@ void D_DoomMain (void)
     doom_log ("CHKPT: entering M_LoadDefaults\n");
     M_LoadDefaults ();              // load before initing other systems
     doom_log ("CHKPT: M_LoadDefaults done\r");
-    doom_log("D_DoomMain: opt_halfline=%d opt_affinetex=%d opt_solidfloor=%d solidfloor_gray=%d detailLevel=%d\r",
-             opt_halfline, opt_affine_texcol, opt_solidfloor, solidfloor_gray, detailLevel);
+    doom_log("D_DoomMain: opt_halfline=%d opt_affinetex=%d opt_solidfloor=%d solidfloor_gray=%d detailLevel=%d opt_scale2x=%d\r",
+             opt_halfline, opt_affine_texcol, opt_solidfloor, solidfloor_gray, detailLevel, opt_scale2x);
 
     printf ("Z_Init: Init zone memory allocation daemon. \n");
     doom_log ("CHKPT: entering Z_Init\n");

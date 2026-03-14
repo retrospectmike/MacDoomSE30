@@ -2,7 +2,7 @@
 
 ## Visual / UI
 - [ ] Improve menu text lightness/contrast
-- [ ] **2× pixel scale** — render at half resolution, scale up 2× in blit; benchmark carefully vs current QUAD mode
+- [x] ~~**2× pixel scale**~~ — Implemented 2026-03-14. Set `scale2x=1` in doom.cfg (or `-scale2x`). Blocks=8 QUAD fills 512px width exactly (256×2); status bar 1× centred with 96px black bars. Blocks 3–8 all work; capped at 8. expand2x_lut bit-doubling LUT + expand2x_blit in i_video_mac.c; R_ExecuteSetViewSize overrides viewwindowx=0/viewwindowy=0/fb_mono_rowbytes=scaledviewwidth/8. Not benchmarked yet vs full-screen QUAD.
 - [ ] **Loading screen timing** — splash screen currently shows before D_DoomMain; WAD load happens after dismiss, so bar shows immediately. Need to show progress during actual load.
 - [ ] **Settings/config dialog** — DLOG/DITL to expose fog_scale, detail level, solid floor settings in-game (user will build DITL in ResEdit)
 

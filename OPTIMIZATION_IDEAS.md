@@ -42,6 +42,15 @@ confirmed, or ruled out. Mark status with: `[ ]` untried, `[x]` done, `[-]` trie
   gameplay. Further reduction would require either a faster threshold blit or skipping
   the full-screen blit on unchanged non-game frames (dirty-rect tracking).
 
+- [ ] **2× mode: direct expand to real_fb_base (skip double-buffer flip)** — Profiled
+  2026-03-14: the entire 2× performance gap vs non-2× (−1.6 FPS mean, −24%) is the
+  expand+flip pipeline. 2× flip copies 18,432 bytes/frame (64×288 rows) vs 8,000 for
+  non-2×. If we expand directly into `real_fb_base` instead of `fb_offscreen_buf`, the
+  18KB flip is eliminated entirely. Risk: tearing if the Mac's 70.7 Hz raster catches
+  the expand mid-write. With halfline (only 64 source rows → 128 dest rows in the view),
+  the expand window is short; likely acceptable on Basilisk II, may show artifacts on real
+  SE/30 at 16 MHz. Worth testing in Basilisk II first — if clean, a significant win.
+
 
 - [x] **R_ScaleFromGlobalAngle — reduce FixedDiv calls** — **Done 2026-03-10.** Inlined
   via `SCALE_FROM_ANGLE` macro; short-seg fast path skips scale2 when stop-start≤2.

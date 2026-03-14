@@ -631,9 +631,15 @@ void R_ExecuteSetViewSize (void)
     int		i;
     int		j;
     int		level;
-    int		startmap; 	
+    int		startmap;
+    extern int  opt_scale2x;
 
     setsizeneeded = false;
+
+    /* 2x pixel-scale mode: blocks=9+ would expand to >512px at 2×.
+     * Clamp to blocks=8 (scaledviewwidth=256 → 512px at 2×, exact fill). */
+    if (opt_scale2x && setblocks > 8)
+	setblocks = 8;
 
     if (setblocks == 11)
     {
@@ -713,6 +719,18 @@ void R_ExecuteSetViewSize (void)
     }
 
     R_InitBuffer (scaledviewwidth, viewheight);
+
+    /* 2x pixel-scale mode: the source render buffer starts at (0,0) —
+     * no centering offset within it. Override the viewwindow position that
+     * R_InitBuffer computed (which centers in the logical 320×200 space),
+     * and update fb_mono_rowbytes to match the narrower source buffer stride. */
+    if (opt_scale2x)
+    {
+	extern int fb_mono_rowbytes;
+	viewwindowx = 0;
+	viewwindowy = 0;
+	fb_mono_rowbytes = scaledviewwidth >> 3;  /* e.g. 32 bytes/row for blocks=8 */
+    }
 
     /* Clear the 1-bit framebuffer view area after a view-size change.
      * The old view area may contain stale direct-render pixels that now fall

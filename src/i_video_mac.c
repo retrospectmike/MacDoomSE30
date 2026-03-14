@@ -119,6 +119,67 @@ int border_needs_blit = 1;
 static void          *real_fb_base     = NULL; /* actual screen memory (qd.screenBits.baseAddr) */
 static unsigned char *fb_offscreen_buf = NULL; /* off-screen rendering target */
 
+/* ---- 2× pixel-scale mode ------------------------------------------------
+ * When opt_scale2x is set, the game view is rendered at half resolution into
+ * fb_source_buf (compact: scaledviewwidth/8 bytes/row), then expand2x_blit
+ * expands it 2× horizontally and vertically into fb_offscreen_buf.
+ *
+ * fb_source_buf max size: blocks=8 QUAD, viewheight=128, 32 bytes/row → 4096 B.
+ * expand2x_lut[b]: uint16_t where each bit of b is doubled (big-endian order).
+ *   e.g. 0b10000000 → 0b1100000000000000 = 0xC000.
+ *
+ * Physical screen constants (set once in I_InitGraphics, constant thereafter):
+ *   s_phys_rbytes    = 64   (512 px / 8)
+ *   s_phys_height    = 342
+ *   s_phys_xoff_byte = 12   (= (512-320)/2/8, byte column of game area left edge)
+ *   s_phys_yoff      = 71   (= (342-200)/2,   row of game area top edge)
+ * -------------------------------------------------------------------------*/
+extern int opt_scale2x; /* defined in d_main.c */
+
+static unsigned char  fb_source_buf[128 * 32]; /* 4096 B: compact view render target */
+static unsigned short expand2x_lut[256];        /* bit-doubling LUT, big-endian       */
+
+static int s_phys_rbytes    = 0; /* physical screen rowbytes           */
+static int s_phys_height    = 0; /* physical screen height in rows     */
+static int s_phys_xoff_byte = 0; /* byte col of 320px game area start  */
+static int s_phys_yoff      = 0; /* row of 200px game area start       */
+
+/* Build expand2x_lut: each byte value → uint16_t with every bit doubled.
+ * Big-endian: bit 7 (leftmost pixel) → bits 15,14 of result; bit 0 → bits 1,0. */
+static void I_BuildExpand2xLUT(void)
+{
+    int b, i;
+    for (b = 0; b < 256; b++) {
+        unsigned short v = 0;
+        for (i = 0; i < 8; i++)
+            if ((b >> (7 - i)) & 1)
+                v |= (unsigned short)3 << (14 - i * 2);
+        expand2x_lut[b] = v;
+    }
+}
+
+/* Expand 1-bit source (src_rows × src_rbytes) to 2× on dest.
+ * Each source bit → 2 dest bits. Each source row → 2 consecutive dest rows.
+ * dest_x0: byte column in dest where the expanded output starts. */
+static void expand2x_blit(const unsigned char *src, unsigned char *dest,
+                           int src_rows, int src_rbytes,
+                           int dest_x0, int dest_y0, int dest_rbytes)
+{
+    int r, c;
+    for (r = 0; r < src_rows; r++) {
+        const unsigned char *sp  = src  + r * src_rbytes;
+        unsigned char       *dp0 = dest + (dest_y0 + r * 2)     * dest_rbytes + dest_x0;
+        unsigned char       *dp1 = dest + (dest_y0 + r * 2 + 1) * dest_rbytes + dest_x0;
+        for (c = 0; c < src_rbytes; c++) {
+            unsigned short ex = expand2x_lut[sp[c]];
+            unsigned char  hi = (unsigned char)(ex >> 8);
+            unsigned char  lo = (unsigned char)ex;
+            dp0[c * 2]     = hi;  dp0[c * 2 + 1] = lo;
+            dp1[c * 2]     = hi;  dp1[c * 2 + 1] = lo;
+        }
+    }
+}
+
 /* View geometry — from r_draw.c/r_main.c, used for selective blit */
 extern int viewwindowx;
 extern int viewwindowy;
@@ -416,6 +477,13 @@ void I_InitGraphics(void)
          * writes here via fb_mono_base.  At the end of each I_FinishUpdate the
          * completed frame is memcpy'd to the real screen in one shot, so the user
          * never sees a partially-rendered frame. */
+        /* Save physical screen layout constants — used by I_FinishUpdate for
+         * both normal and 2x mode (non-direct blit, flip, menu overlay). */
+        s_phys_rbytes    = fb_mono_rowbytes;                              /* 64 */
+        s_phys_height    = fb_height;                                     /* 342 */
+        s_phys_xoff_byte = fb_mono_xoff / 8;                             /* 12 */
+        s_phys_yoff      = fb_mono_yoff;                                  /* 71 */
+
         fb_offscreen_buf = (unsigned char *)malloc((size_t)fb_mono_rowbytes * fb_height);
         if (!fb_offscreen_buf)
             I_Error("I_InitGraphics: failed to allocate off-screen buffer");
@@ -424,6 +492,20 @@ void I_InitGraphics(void)
         fb_mono_base = fb_offscreen_buf; /* redirect all rendering to off-screen */
         doom_log("I_InitGraphics: off-screen buffer %d bytes, real_fb=%p off_fb=%p\r",
                  fb_mono_rowbytes * fb_height, real_fb_base, (void *)fb_mono_base);
+
+        /* 2x pixel-scale mode: further redirect fb_mono_base to the compact
+         * source buffer.  R_ExecuteSetViewSize later sets fb_mono_rowbytes to
+         * scaledviewwidth/8 and forces viewwindowx=viewwindowy=0. */
+        if (opt_scale2x) {
+            I_BuildExpand2xLUT();
+            memset(fb_source_buf, 0, sizeof(fb_source_buf));
+            fb_mono_base     = fb_source_buf; /* renderers → compact source buf */
+            fb_mono_xoff     = 0;
+            fb_mono_yoff     = 0;
+            fb_mono_rowbytes = 32;  /* default for blocks=8; updated in R_ExecuteSetViewSize */
+            doom_log("I_InitGraphics: 2x mode, src buf=%d B, expand2x_lut built\r",
+                     (int)sizeof(fb_source_buf));
+        }
     }
 
     /* Load doom_dither.cfg if present, then build gamma curve.
@@ -624,9 +706,22 @@ void I_FinishUpdate(void)
     if (mono_dirty) { I_BuildMonoColormaps(); mono_dirty = 0; }
 
     byte *src = screens[0];
-    int   xoff = fb_mono_xoff;
-    int   yoff = fb_mono_yoff;
+    /* xoff/yoff: physical screen centering for the 320×200 game area.
+     * Always the real screen constants — NOT fb_mono_{xoff,yoff}, which are 0
+     * in 2x mode (they address the compact source buffer, not the screen). */
+    int   xoff = s_phys_xoff_byte << 3;  /* pixels: 12*8 = 96 */
+    int   yoff = s_phys_yoff;             /* rows: 71 */
     int   y, x;
+
+    /* 2x pixel-scale layout (computed each frame; only used when opt_scale2x).
+     * scaledviewwidth/8 = source buf bytes/row (32 for blocks=8).
+     * The expanded view is centred on the physical 512px screen; status bar
+     * (320px wide) is centred with 96px black bars on each side. */
+    int scale2x_src_rbytes = scaledviewwidth >> 3;
+    int scale2x_exp_bytes  = scale2x_src_rbytes * 2;
+    int scale2x_dest_x0    = (s_phys_rbytes - scale2x_exp_bytes) / 2;
+    int scale2x_dest_y0    = (s_phys_height - viewheight * 2 - SBARHEIGHT) / 2;
+    int scale2x_sbar_y0    = scale2x_dest_y0 + viewheight * 2;
 
     /* Direct mode: GS_LEVEL gameplay with no menu/wipe/automap.
      * Walls/floors/ceilings already rendered to 1-bit fb by R_DrawColumn_Mono
@@ -646,7 +741,67 @@ void I_FinishUpdate(void)
                  (int)wipe_in_progress, fb_mono_base);
     }
 
-    if (is_direct) {
+    /* 2x mode: if the view layout changed (e.g. screenblocks changed), clear
+     * fb_offscreen_buf and the real screen to black so stale pixels are gone. */
+    if (opt_scale2x) {
+        static int last_2x_dest_y0 = -1;
+        if (scale2x_dest_y0 != last_2x_dest_y0) {
+            memset(fb_offscreen_buf, 0xFF, (size_t)s_phys_rbytes * s_phys_height);
+            if (real_fb_base)
+                memset(real_fb_base, 0xFF, (size_t)s_phys_rbytes * s_phys_height);
+            last_2x_dest_y0 = scale2x_dest_y0;
+        }
+    }
+
+    if (opt_scale2x && is_direct) {
+        /* --- 2x pixel-scale direct path -----------------------------------
+         * 1. Expand fb_source_buf → fb_offscreen_buf at 2× (view area).
+         * 2. Blit status bar 1× centred → fb_offscreen_buf.
+         * 3. HU overlay (if active): expand-and-AND mask over view rows.
+         * Flip is handled below along with the normal flip. */
+        boolean do_border = (border_needs_blit || !last_direct);
+        if (do_border) border_needs_blit = 0;
+
+        expand2x_blit(fb_source_buf, fb_offscreen_buf,
+                      viewheight, scale2x_src_rbytes,
+                      scale2x_dest_x0, scale2x_dest_y0, s_phys_rbytes);
+
+        /* Status bar: always blit in 2x mode (view never fills full screen). */
+        {
+            const int sbar0 = SCREENHEIGHT - SBARHEIGHT;
+            for (y = 0; y < SBARHEIGHT; y++) {
+                const byte    *sr  = src + (sbar0 + y) * SCREENWIDTH;
+                unsigned char *dst = fb_offscreen_buf
+                                     + (scale2x_sbar_y0 + y) * s_phys_rbytes
+                                     + s_phys_xoff_byte;
+                for (x = 0; x < SCREENWIDTH; x += 8) *dst++ = blit8_sbar_thresh(sr + x);
+            }
+        }
+
+        /* HU overlay: expand screens[0] view area (viewwindowx=0, viewwindowy=0). */
+        if (hu_overlay_active) {
+            int vy;
+            for (vy = 0; vy < viewheight; vy++) {
+                const byte    *sr  = src + vy * SCREENWIDTH;
+                int            dr  = scale2x_dest_y0 + vy * 2;
+                unsigned char *dp0 = fb_offscreen_buf + dr * s_phys_rbytes + scale2x_dest_x0;
+                unsigned char *dp1 = dp0 + s_phys_rbytes;
+                int sx;
+                for (sx = 0; sx < scaledviewwidth; sx += 8) {
+                    unsigned char mask = blit8_black(sr + sx);
+                    if (mask) {
+                        unsigned short ex = expand2x_lut[mask];
+                        int c = (sx >> 2);   /* sx/8 * 2 dest bytes offset */
+                        dp0[c] &= ~(unsigned char)(ex >> 8);
+                        dp0[c+1] &= ~(unsigned char)ex;
+                        dp1[c] &= ~(unsigned char)(ex >> 8);
+                        dp1[c+1] &= ~(unsigned char)ex;
+                    }
+                }
+            }
+        }
+
+    } else if (is_direct) {
         /* Cached view geometry (constant while screenblocks unchanged). */
         const int vx0   = viewwindowx;              /* 48  — 8-aligned */
         const int vx1   = viewwindowx + scaledviewwidth; /* 272 — 8-aligned */
@@ -730,41 +885,52 @@ void I_FinishUpdate(void)
 
     } else {
         /* Non-direct (menu, wipe, intermission, title): blit screens[0] to 1-bit fb.
-         * Menu frames: restore cached 1-bit background instead of re-blitting every
-         * frame — eliminates 8000 blit8_sbar_thresh calls per menu frame.
+         * Always targets fb_offscreen_buf at physical screen offsets — this works
+         * for both normal and 2x mode (in normal mode fb_mono_base==fb_offscreen_buf).
+         * Menu frames: fill entire offscreen buffer solid black (0xFF = all pixels on
+         * in Mac 1-bit), covering the full area in both 2x and non-2x layouts.
+         * The menu overlay then draws white text on top.  Wipes/title/intermission
+         * use the normal screens[0] blit path.
          * last_direct=false ensures the next direct frame triggers do_border=true,
          * re-blitting the border after wipe/menu may have written over it. */
-        int col_off   = xoff >> 3;
-        int col_bytes = SCREENWIDTH >> 3;   /* 40 bytes per row */
+        int col_off   = s_phys_xoff_byte;        /* byte col of 320px game area: 12 */
+        int col_bytes = SCREENWIDTH >> 3;         /* 40 bytes per row */
 
-        if (menuactive && menu_bg_valid) {
-            /* Fast path: restore cached 1-bit background */
-            for (y = 0; y < SCREENHEIGHT; y++)
-                memcpy((unsigned char *)fb_mono_base + (y + yoff) * fb_mono_rowbytes + col_off,
-                       menu_bg_1bit + y * col_bytes,
-                       col_bytes);
+        if (menuactive) {
+            if (!menu_bg_valid) {
+                /* First menu frame: snapshot current fb_offscreen_buf (game frame) */
+                for (y = 0; y < SCREENHEIGHT; y++)
+                    memcpy(menu_bg_1bit + y * col_bytes,
+                           fb_offscreen_buf + (y + s_phys_yoff) * s_phys_rbytes + col_off,
+                           col_bytes);
+                menu_bg_valid = true;
+            } else {
+                /* Subsequent menu frames: restore frozen game frame */
+                for (y = 0; y < SCREENHEIGHT; y++)
+                    memcpy(fb_offscreen_buf + (y + s_phys_yoff) * s_phys_rbytes + col_off,
+                           menu_bg_1bit + y * col_bytes,
+                           col_bytes);
+            }
         } else {
-            /* Full blit from screens[0] */
+            menu_bg_valid = false;
+            /* Full screens[0] blit for wipe/title/intermission (unchanged) */
             for (y = 0; y < SCREENHEIGHT; y++) {
                 const byte    *sr  = src + y * SCREENWIDTH;
-                unsigned char *dst = (unsigned char *)(fb_mono_base
-                                     + (y + yoff) * fb_mono_rowbytes) + col_off;
+                unsigned char *dst = fb_offscreen_buf
+                                     + (y + s_phys_yoff) * s_phys_rbytes + col_off;
                 for (x = 0; x < SCREENWIDTH; x += 8)
                     *dst++ = blit8_sbar_thresh(sr + x);
             }
-            /* Save the just-blitted 1-bit background on first menu frame */
-            if (menuactive) {
-                for (y = 0; y < SCREENHEIGHT; y++)
-                    memcpy(menu_bg_1bit + y * col_bytes,
-                           (unsigned char *)fb_mono_base + (y + yoff) * fb_mono_rowbytes + col_off,
-                           col_bytes);
-                menu_bg_valid = true;
-            }
         }
-        if (!menuactive) menu_bg_valid = false;
     }
 
     last_direct = is_direct;
+    /* Invalidate menu background snapshot on every direct frame so the next
+     * menu open always captures the most recent game frame, not the first-ever
+     * ESC press.  menu_bg_valid is never cleared by the non-direct path during
+     * gameplay (menu close → is_direct immediately true → non-direct else never
+     * runs).  One boolean write per frame; zero overhead. */
+    if (is_direct) menu_bg_valid = false;
 
     /* Menu overlay: solid-white mask applied over the full screen.
      * Only runs when the menu is open (menuactive implies !is_direct). */
@@ -774,11 +940,12 @@ void I_FinishUpdate(void)
                      menuactive ? "ENTER" : "EXIT", (int)is_direct);
         prev_ma_overlay = menuactive; }
     if (menuactive && menu_overlay_buf) {
+        /* Write to fb_offscreen_buf at physical offsets — correct for both modes. */
         byte *overlay = menu_overlay_buf;
         for (y = 0; y < SCREENHEIGHT; y++) {
             const byte    *ovr = overlay + y * SCREENWIDTH;
-            unsigned char *dst = (unsigned char *)(fb_mono_base
-                                 + (y + yoff) * fb_mono_rowbytes) + (xoff >> 3);
+            unsigned char *dst = fb_offscreen_buf
+                                 + (y + s_phys_yoff) * s_phys_rbytes + s_phys_xoff_byte;
             for (x = 0; x < SCREENWIDTH; x += 8) { *dst &= ~blit8_black(ovr + x); dst++; }
         }
     }
@@ -804,21 +971,32 @@ void I_FinishUpdate(void)
         }
     }
 
-    /* Double-buffer flip: copy only the game area columns to the real screen.
-     * Copying the full row width (64 bytes) would overwrite the black background
-     * window's flanking columns with white from the uninitialised offscreen buf.
-     * Instead copy only the 40 bytes (320px) of actual game content per row,
-     * leaving the 12-byte margins on each side untouched.
-     * 200 × 40 = 8,000 bytes — also ~37% less data than the full-row flip. */
+    /* Double-buffer flip: copy completed frame from fb_offscreen_buf → real screen. */
     if (real_fb_base) {
-        int      flip_y;
-        int      col_off  = xoff >> 3;          /* byte offset of game area: 12 */
-        int      col_bytes = SCREENWIDTH >> 3;   /* game area width in bytes: 40 */
-        for (flip_y = 0; flip_y < SCREENHEIGHT; flip_y++) {
-            int row = flip_y + yoff;
-            memcpy((unsigned char *)real_fb_base + row * fb_mono_rowbytes + col_off,
-                   (unsigned char *)fb_mono_base + row * fb_mono_rowbytes + col_off,
-                   col_bytes);
+        int flip_y;
+        if (opt_scale2x && (is_direct || menuactive)) {
+            /* 2x direct/menu flip: copy the expanded view rows (full width) + sbar rows.
+             * During menu in 2x mode the frozen game frame occupies these same rows,
+             * so using the full-width 2x flip range is correct for both cases.
+             * fb_offscreen_buf was cleared to 0xFF (black) on layout change, so
+             * side areas outside the expanded view are already black — full-row
+             * copy is correct and avoids separate side-bar handling. */
+            int flip_end = scale2x_sbar_y0 + SBARHEIGHT;
+            for (flip_y = scale2x_dest_y0; flip_y < flip_end; flip_y++)
+                memcpy((unsigned char *)real_fb_base + flip_y * s_phys_rbytes,
+                       fb_offscreen_buf             + flip_y * s_phys_rbytes,
+                       s_phys_rbytes);
+        } else {
+            /* Normal flip: 40 bytes × 200 rows (320px game area, centred).
+             * Leaves the 12-byte margins on each side of the real screen
+             * untouched (they stay black from the QuickDraw background window). */
+            int col_bytes = SCREENWIDTH >> 3;  /* 40 */
+            for (flip_y = 0; flip_y < SCREENHEIGHT; flip_y++) {
+                int row = flip_y + s_phys_yoff;
+                memcpy((unsigned char *)real_fb_base + row * s_phys_rbytes + s_phys_xoff_byte,
+                       fb_offscreen_buf             + row * s_phys_rbytes + s_phys_xoff_byte,
+                       col_bytes);
+            }
         }
     }
 }

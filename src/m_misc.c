@@ -209,6 +209,7 @@ extern int	opt_affine_texcol;
 extern int	opt_solidfloor;
 extern int	solidfloor_gray;
 extern int	fog_scale;
+extern int	opt_scale2x;
 
 // machine-independent sound params
 extern	int	numChannels;
@@ -297,6 +298,9 @@ default_t	defaults[] =
      * Wall/sprite columns with scale < fog_scale use solid background fill.
      * Tuned in-game with ` (increase) and \ (decrease), saved with K. */
     {"fog_scale",       &fog_scale,         0},
+    /* 2x pixel-scale mode: render at half resolution, expand to fill 512px Mac screen.
+     * Set to 1 to enable. Caps effective screenblocks at 8. Default OFF. */
+    {"scale2x",         &opt_scale2x,       0},
 
     {"snd_channels",&numChannels, 3},
 
