@@ -95,12 +95,14 @@ set(DOOM_SOURCES
 if(DOOM_RELEASE_BUILD)
     # Release: no Retro68 console window — suppress it by omitting CONSOLE
     add_application(DoomSE30
+        CREATOR "DMSE"
         ${DOOM_SOURCES}
     )
     target_compile_definitions(DoomSE30 PRIVATE DOOM_RELEASE_BUILD=1)
 else()
     # Debug: CONSOLE enables the Retro68 console window for printf output
     add_application(DoomSE30
+        CREATOR "DMSE"
         ${DOOM_SOURCES}
         CONSOLE
     )
