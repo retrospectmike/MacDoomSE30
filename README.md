@@ -11,7 +11,7 @@ This is a port of [linuxdoom](https://github.com/id-Software/DOOM) to MacOS Syst
 - 64MB of RAM
   - Doesn't currently need it all and may adjust this later
 - Enough storage to fit the game and your .wad file(s)
-  - I recommend [BlueSCSI](https://github.com/erichelgeson/BlueSCSI)
+  - I recommend [BlueSCSI](https://github.com/BlueSCSI/BlueSCSI-v2/)
 - WAD file(s)
   - doom.wad / doom1.wad / doom2.wad / Tnt.wad / Plutonia.wad  etc.
   - You'll have to provide one or more of these yourself, placed in the same dir as the application file
