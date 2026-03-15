@@ -211,6 +211,12 @@ extern int	solidfloor_gray;
 extern int	fog_scale;
 extern int	opt_scale2x;
 
+/* dither params — consolidated from doom_dither.cfg into doom.cfg */
+extern int	dither_gamma_x100;  /* gamma ×100: 60 = 0.60, range 5-300 */
+extern int	dither_gblack;      /* input black-point (0-255)            */
+extern int	dither_gwhite;      /* input white-point (0-255)            */
+extern int	no_lighting;        /* 1 = disable per-column lighting      */
+
 // machine-independent sound params
 extern	int	numChannels;
 
@@ -301,6 +307,12 @@ default_t	defaults[] =
     /* 2x pixel-scale mode: render at half resolution, expand to fill 512px Mac screen.
      * Set to 1 to enable. Caps effective screenblocks at 8. Default OFF. */
     {"scale2x",         &opt_scale2x,       0},
+
+    /* Dither/display params — consolidated from doom_dither.cfg */
+    {"dither_gamma_x100", &dither_gamma_x100, 60 },   /* 0.60 gamma */
+    {"game_black",        &dither_gblack,     5  },
+    {"game_white",        &dither_gwhite,     195},
+    {"no_lighting",       &no_lighting,       0  },
 
     {"snd_channels",&numChannels, 3},
 

@@ -190,7 +190,7 @@ extern int scaledviewwidth;
 /* All are non-static so I_AdjustDither (called from i_input_mac.c) can
  * modify them, and so they can be saved/loaded via doom_dither.cfg.       */
 
-float dither_gamma  = 0.52f; /* gamma exponent: <1 brightens midtones       */
+int   dither_gamma_x100 = 52; /* gamma exponent ×100: 52 = 0.52, range 5-300  */
 int   dither_r_wt   = 121;   /* red   luminance weight (sum ~250)            */
 int   dither_g_wt   = 104;   /* green luminance weight                       */
 int   dither_b_wt   = 25;    /* blue  luminance weight                       */
@@ -268,8 +268,7 @@ static void I_BuildMonoColormaps(void)
 void I_BuildGammaCurve(void)
 {
     int g;
-    /* Convert dither_gamma to integer × 100 (basic float multiply — no SANE) */
-    int gam100 = (int)(dither_gamma * 100.0f + 0.5f);
+    int gam100 = dither_gamma_x100;
 
     gamma_curve[0]   = 0;
     gamma_curve[255] = 255;
@@ -313,8 +312,8 @@ void I_BuildGammaCurve(void)
         gamma_curve[g] = (byte)(out > 255u ? 255u : out);
     }
 
-    doom_log("I_BuildGammaCurve: dg=%.2f gc[64]=%d gc[128]=%d gc[192]=%d\r",
-             dither_gamma, gamma_curve[64], gamma_curve[128], gamma_curve[192]);
+    doom_log("I_BuildGammaCurve: dg_x100=%d gc[64]=%d gc[128]=%d gc[192]=%d\r",
+             dither_gamma_x100, gamma_curve[64], gamma_curve[128], gamma_curve[192]);
 }
 
 /* Rebuild grayscale_pal from current params + saved palette.
@@ -348,67 +347,10 @@ void I_RebuildDitherPalette(void)
     I_BuildMonoColormaps();
 }
 
-/* Load doom_dither.cfg — key/value pairs, one per line.
- * Unknown keys are silently ignored for forward compatibility.             */
-void I_LoadDitherConfig(void)
-{
-    FILE *f = fopen("doom_dither.cfg", "r");
-    char key[32];
-    float fval;
-    int   ival;
-
-    if (!f) {
-        doom_log("I_LoadDitherConfig: no doom_dither.cfg, using defaults\r");
-        return;
-    }
-    while (fscanf(f, "%31s", key) == 1) {
-        if (strcmp(key, "gamma")       == 0 && fscanf(f, "%f",  &fval) == 1)
-            dither_gamma  = (fval >= 0.05f && fval <= 3.0f) ? fval : dither_gamma;
-        else if (strcmp(key, "r_weight")  == 0 && fscanf(f, "%d", &ival) == 1)
-            dither_r_wt   = (ival >= 0 && ival <= 255) ? ival : dither_r_wt;
-        else if (strcmp(key, "g_weight")  == 0 && fscanf(f, "%d", &ival) == 1)
-            dither_g_wt   = (ival >= 0 && ival <= 255) ? ival : dither_g_wt;
-        else if (strcmp(key, "b_weight")  == 0 && fscanf(f, "%d", &ival) == 1)
-            dither_b_wt   = (ival >= 0 && ival <= 255) ? ival : dither_b_wt;
-        else if (strcmp(key, "game_black") == 0 && fscanf(f, "%d", &ival) == 1)
-            dither_gblack = (ival >= 0 && ival <= 255) ? ival : dither_gblack;
-        else if (strcmp(key, "game_white") == 0 && fscanf(f, "%d", &ival) == 1)
-            dither_gwhite = (ival >= 0 && ival <= 255) ? ival : dither_gwhite;
-        else if (strcmp(key, "no_lighting") == 0 && fscanf(f, "%d", &ival) == 1)
-            no_lighting   = ival ? 1 : 0;
-        else if (strcmp(key, "fog_scale") == 0 && fscanf(f, "%d", &ival) == 1)
-            fog_scale     = (ival >= 0 && ival <= 65536) ? ival : fog_scale;
-        else {
-            /* unknown key — skip the rest of the line */
-            int c; while ((c = fgetc(f)) != '\n' && c != '\r' && c != EOF) {}
-        }
-    }
-    fclose(f);
-    /* Ensure minimum gap after loading — prevents div-by-zero */
-    if (dither_gwhite < dither_gblack + 10) dither_gwhite = dither_gblack + 10;
-    if (dither_gwhite > 255)                dither_gwhite = 255;
-    doom_log("I_LoadDitherConfig: gamma=%.2f rw=%d gw=%d bw=%d gb=%d gw2=%d nl=%d\r",
-             dither_gamma, dither_r_wt, dither_g_wt, dither_b_wt,
-             dither_gblack, dither_gwhite, no_lighting);
-}
-
-/* Save current dither params to doom_dither.cfg.
- * Called by the 'K' hotkey at runtime.                                    */
-void I_SaveDitherConfig(void)
-{
-    FILE *f = fopen("doom_dither.cfg", "w");
-    if (!f) { doom_log("I_SaveDitherConfig: failed to open doom_dither.cfg\r"); return; }
-    fprintf(f, "gamma %0.2f\r", dither_gamma);
-    fprintf(f, "r_weight %d\r", dither_r_wt);
-    fprintf(f, "g_weight %d\r", dither_g_wt);
-    fprintf(f, "b_weight %d\r", dither_b_wt);
-    fprintf(f, "game_black %d\r", dither_gblack);
-    fprintf(f, "game_white %d\r", dither_gwhite);
-    fprintf(f, "no_lighting %d\r", no_lighting);
-    fprintf(f, "fog_scale %d\r", fog_scale);
-    fclose(f);
-    doom_log("I_SaveDitherConfig: saved (fog_scale=%d)\r", fog_scale);
-}
+/* dither params are now loaded/saved via doom.cfg (M_LoadDefaults/M_SaveDefaults).
+ * These stubs are kept so any lingering call sites link cleanly.           */
+void I_LoadDitherConfig(void) {}
+void I_SaveDitherConfig(void) {}
 
 /* Adjust a dither parameter at runtime (called from i_input_mac.c).
  * param: 0=gamma, 1=game_black, 2=game_white, 3=toggle no_lighting, 4=save
@@ -416,11 +358,11 @@ void I_SaveDitherConfig(void)
 void I_AdjustDither(int param, int delta)
 {
     switch (param) {
-        case 0: /* gamma: step 0.05 */
-            dither_gamma += delta * 0.05f;
-            if (dither_gamma < 0.05f) dither_gamma = 0.05f;
-            if (dither_gamma > 3.0f)  dither_gamma = 3.0f;
-            doom_log("dither: gamma=%.2f\r", dither_gamma);
+        case 0: /* gamma: step 5 (= 0.05 in ×100 units), range 5-300 */
+            dither_gamma_x100 += delta * 5;
+            if (dither_gamma_x100 < 5)   dither_gamma_x100 = 5;
+            if (dither_gamma_x100 > 300) dither_gamma_x100 = 300;
+            doom_log("dither: gamma_x100=%d\r", dither_gamma_x100);
             break;
         case 1: /* game_black: step 5, must stay at least 10 below game_white */
             dither_gblack += delta * 5;
@@ -438,8 +380,8 @@ void I_AdjustDither(int param, int delta)
             no_lighting = !no_lighting;
             doom_log("dither: no_lighting=%d\r", no_lighting);
             return;  /* no palette rebuild needed */
-        case 4: /* save config */
-            I_SaveDitherConfig();
+        case 4: /* save config — now consolidated into doom.cfg */
+            { extern void M_SaveDefaults(void); M_SaveDefaults(); }
             return;
         case 5: /* fog_scale: step 2048, range 0-65536 (0=off) */
             fog_scale += delta * 2048;
@@ -508,11 +450,9 @@ void I_InitGraphics(void)
         }
     }
 
-    /* Load doom_dither.cfg if present, then build gamma curve.
-     * I_SetPalette may have been called earlier in startup (before this
-     * function) with gamma_curve still all-zero.  I_RebuildDitherPalette()
-     * re-bakes grayscale_pal with the correct curve if palette_valid is set. */
-    I_LoadDitherConfig();
+    /* Build gamma curve from dither_gamma_x100 (loaded by M_LoadDefaults earlier).
+     * I_SetPalette may have been called before this with gamma_curve all-zero;
+     * I_RebuildDitherPalette() re-bakes grayscale_pal if palette_valid is set. */
     I_BuildGammaCurve();
     I_RebuildDitherPalette();
 
@@ -599,8 +539,8 @@ void I_SetPalette(byte *palette)
             gray = gray >= dither_gblack ? 255 : 0;
         grayscale_pal[i] = gamma_curve[gray];
         if (i == 128)
-            doom_log("I_SetPalette: gc[gray=%d]=%d -> gp[128]=%d (dg=%.2f)\r",
-                     gray, gamma_curve[gray], grayscale_pal[128], dither_gamma);
+            doom_log("I_SetPalette: gc[gray=%d]=%d -> gp[128]=%d (dg_x100=%d)\r",
+                     gray, gamma_curve[gray], grayscale_pal[128], dither_gamma_x100);
         raw_gray[i] = (byte)gray;
         {
             int sb = r < SBAR_BLACK ? 0

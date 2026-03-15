@@ -55,8 +55,7 @@ void I_EndRead (void);
 
 /* Runtime dither parameter tuning */
 void I_AdjustDither    (int param, int delta);
-void I_SaveDitherConfig(void);
-void I_LoadDitherConfig(void);
+/* dither config consolidated into doom.cfg via M_SaveDefaults/M_LoadDefaults */
 void I_BuildGammaCurve (void);
 void I_RebuildDitherPalette(void);
 
