@@ -218,9 +218,7 @@ static void apply_factory_defaults(void)
 static void populate_settings(DialogPtr dlg)
 {
     dlg_set_check(dlg, 15, opt_halfline);
-    dlg_disable_check(dlg,15); //Disable halfline controls
     dlg_set_check(dlg, 16, opt_affine_texcol);
-    dlg_disable_check(dlg,16); //Disable opt_affine_texcol controls
     dlg_set_check(dlg, 17, opt_solidfloor);
     dlg_set_check(dlg, 18, opt_scale2x);
     dlg_set_check(dlg, 19, no_lighting);
