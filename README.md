@@ -50,3 +50,16 @@ The main ones you'll notice are:
 
 # Careware
 This program is care-ware. If you enjoy it, do something nice to someone today!
+
+# Release Notes
+• 1.0b3
+- Updated Options screen to enable modification of Half Line and Affine options
+  - Half line OFF is highly recommended  for Full Screen to avoid really low-quality visuals
+• 1.0b2
+- Actual Initial public release
+- Added missing wad file check
+- Updated to better doom.cfg included distro config
+• 1.0b1
+- Initial public release
+- 'Playable' on the SE/30 with Default options settings
+- No sounds yet
