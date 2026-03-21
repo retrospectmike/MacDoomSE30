@@ -13,6 +13,9 @@ Retro68-build/
 # Linux Doom reference source (upstream, not ours)
 linuxdoom-src/
 
+# FastDoom reference source (upstream, not ours)
+FastDoom/
+
 # Hello world test project
 hello_world/
 

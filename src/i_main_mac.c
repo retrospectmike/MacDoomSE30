@@ -210,7 +210,7 @@ static void apply_factory_defaults(void)
     fog_scale         = 10240;
     detailLevel       = 2;
     opt_scale2x       = 0;
-    opt_sound         = 1;
+    opt_sound         = 0;
     no_lighting       = 0;
     dither_gamma_x100 = 60;
     dither_gblack     = 5;
@@ -285,7 +285,7 @@ static void ShowSettingsDialog(void)
                 apply_factory_defaults();
                 populate_settings(dlg);
                 break;
-            case 15: case 16: case 17: case 18: case 19:  /* checkboxes */
+            case 15: case 16: case 17: case 18: case 19: case 32:  /* checkboxes */
                 dlg_toggle_check(dlg, itemHit);
                 break;
         }

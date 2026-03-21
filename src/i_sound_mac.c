@@ -31,7 +31,8 @@ typedef struct {
     Handle          snd_handle; /* current 'snd ' resource Handle (disposed on next play) */
     int             sfx_id;    /* DOOM sfx enum currently playing, or -1 */
     void           *cache_ptr; /* pointer to zone block (for unpin on completion) */
-    volatile Boolean playing;  /* set false by callback at interrupt time */
+    volatile Boolean playing;  /* DOOM-level: cleared by ISStop or callback */
+    volatile Boolean hw_busy;  /* HW-level: set on SndPlay, cleared ONLY by callback */
 } mac_channel_t;
 
 static mac_channel_t mac_channels[MAC_MAX_CHANNELS];
@@ -51,6 +52,7 @@ static pascal void snd_callback(SndChannelPtr chan, SndCommand *cmd)
     for (i = 0; i < mac_num_channels; i++) {
         if (mac_channels[i].chan == chan) {
             mac_channels[i].playing = false;
+            mac_channels[i].hw_busy = false;
             break;
         }
     }
@@ -86,6 +88,7 @@ void I_InitSound(void)
         }
         mac_channels[i].sfx_id = -1;
         mac_channels[i].playing = false;
+        mac_channels[i].hw_busy = false;
         mac_channels[i].cache_ptr = NULL;
         mac_channels[i].snd_handle = NULL;
         mac_num_channels++;
@@ -184,7 +187,7 @@ static Handle I_BuildSndHandle(Ptr samplePtr, long length,
                                 unsigned long sampleRate,
                                 long extra_bytes)
 {
-    long sz = 44 + extra_bytes; /* 20 hdr + 24 SoundHeader + inline data */
+    long sz = 52 + extra_bytes; /* 20 hdr + 2 cmds(16) + 24 SoundHeader + inline data */
     Handle h = NewHandle(sz);
     unsigned char *p;
 
@@ -198,19 +201,23 @@ static Handle I_BuildSndHandle(Ptr samplePtr, long length,
     *(short *)(p + 2) = 1;                /* num modifiers */
     *(short *)(p + 4) = 5;                /* sampledSynth */
     *(long *)(p + 6) = 0x00000080;        /* initMono */
-    *(short *)(p + 10) = 1;               /* num commands */
+    *(short *)(p + 10) = 2;               /* num commands */
     *(unsigned short *)(p + 12) = 0x8051; /* bufferCmd | dataOffsetFlag */
     *(short *)(p + 14) = 0;               /* param1 */
-    *(long *)(p + 16) = 20;               /* param2: offset to SoundHeader */
+    *(long *)(p + 16) = 28;               /* param2: offset to SoundHeader */
+    /* callBackCmd fires when buffer drains → snd_callback sets playing=false */
+    *(unsigned short *)(p + 20) = 13;     /* callBackCmd */
+    *(short *)(p + 22) = 0;               /* param1 */
+    *(long *)(p + 24) = 0;                /* param2 */
 
-    /* SoundHeader at offset 20 (24 bytes with struct padding) */
-    *(Ptr *)(p + 20) = samplePtr;          /* samplePtr (NULL = inline) */
-    *(long *)(p + 24) = length;            /* sample count */
-    *(long *)(p + 28) = sampleRate;        /* Fixed 16.16 */
-    *(long *)(p + 32) = 0;                 /* loopStart */
-    *(long *)(p + 36) = 0;                 /* loopEnd */
-    p[40] = 0;                             /* encode = stdSH */
-    p[41] = 60;                            /* baseFrequency = middle C */
+    /* SoundHeader at offset 28 (24 bytes) */
+    *(Ptr *)(p + 28) = samplePtr;          /* samplePtr (NULL = inline) */
+    *(long *)(p + 32) = length;            /* sample count */
+    *(long *)(p + 36) = sampleRate;        /* Fixed 16.16 */
+    *(long *)(p + 40) = 0;                 /* loopStart */
+    *(long *)(p + 44) = 0;                 /* loopEnd */
+    p[48] = 0;                             /* encode = stdSH */
+    p[49] = 60;                            /* baseFrequency = middle C */
 
     HUnlock(h);
     return h;
@@ -258,7 +265,7 @@ void I_SoundTest(void)
         if (h) {
             /* Copy tone into sampleArea at offset 42 */
             HLock(h);
-            memcpy(((unsigned char *)*h) + 42, g_test_tone, 1024);
+            memcpy(((unsigned char *)*h) + 50, g_test_tone, 1024);
             HUnlock(h);
             err = SndPlay(NULL, h, false); /* sync, SM-owned channel */
             doom_log("SNDTEST 1: SndPlay(NULL,inline,sync) err=%d\r", (int)err);
@@ -293,7 +300,7 @@ void I_SoundTest(void)
             h = I_BuildSndHandle(NULL, 1024, 11025L << 16, 1024);
             if (h) {
                 HLock(h);
-                memcpy(((unsigned char *)*h) + 42, g_test_tone, 1024);
+                memcpy(((unsigned char *)*h) + 50, g_test_tone, 1024);
                 HUnlock(h);
                 err = SndPlay(tc, h, true); /* async */
                 doom_log("SNDTEST 3: SndPlay(fresh,inline,async) err=%d\r", (int)err);
@@ -335,7 +342,7 @@ void I_SoundTest(void)
         h = I_BuildSndHandle(NULL, 1024, 11025L << 16, 1024);
         if (h) {
             HLock(h);
-            memcpy(((unsigned char *)*h) + 42, g_test_tone, 1024);
+            memcpy(((unsigned char *)*h) + 50, g_test_tone, 1024);
             HUnlock(h);
             err = SndPlay(mac_channels[0].chan, h, true); /* async on game ch */
             doom_log("SNDTEST 5: SndPlay(gameCh0,inline,async) err=%d\r", (int)err);
@@ -434,7 +441,7 @@ void I_SoundTest(void)
 
 int I_StartSound(int id, int vol, int sep, int pitch, int priority)
 {
-    int i, oldest, oldest_id;
+    int i, oldest;
     mac_channel_t *mc;
     sfxinfo_t *sfx;
     byte *raw;
@@ -463,9 +470,8 @@ int I_StartSound(int id, int vol, int sep, int pitch, int priority)
 
     raw = (byte *)sfx->data;
 
-    /* Find a free channel, or steal the oldest */
+    /* Find a free channel — drop if all busy (no stealing/queuing) */
     oldest = -1;
-    oldest_id = 0x7FFFFFFF;
     for (i = 0; i < mac_num_channels; i++) {
         if (!mac_channels[i].playing) {
             if (mac_channels[i].cache_ptr) {
@@ -475,13 +481,9 @@ int I_StartSound(int id, int vol, int sep, int pitch, int priority)
             oldest = i;
             break;
         }
-        if (mac_channels[i].sfx_id < oldest_id) {
-            oldest_id = mac_channels[i].sfx_id;
-            oldest = i;
-        }
     }
 
-    if (oldest < 0) oldest = 0;
+    if (oldest < 0) return -1;  /* all busy — drop sound */
 
     mc = &mac_channels[oldest];
 
@@ -496,6 +498,26 @@ int I_StartSound(int id, int vol, int sep, int pitch, int priority)
     if (mc->snd_handle) {
         DisposeHandle(mc->snd_handle);
         mc->snd_handle = NULL;
+    }
+
+    /* If HW is still running (ISStop cleared playing but SndPlay not done),
+       dispose+recreate the channel to flush the queue before new SndPlay. */
+    if (mc->hw_busy) {
+        doom_log("ISS: flush ch%d sfx=%d (hw_busy)\r", oldest, mc->sfx_id);
+        if (mc->chan) {
+            SndDisposeChannel(mc->chan, true);
+            mc->chan = NULL;
+        }
+        {
+            OSErr ch_err = SndNewChannel(&mc->chan, sampledSynth, 0x80,
+                                          snd_callback_upp);
+            if (ch_err != noErr) {
+                doom_log("ISS: SndNewChannel err=%d after flush\r", (int)ch_err);
+                mc->hw_busy = false;
+                return -1;
+            }
+        }
+        mc->hw_busy = false;
     }
 
     /* Parse DMX header from raw data */
@@ -529,6 +551,7 @@ int I_StartSound(int id, int vol, int sep, int pitch, int priority)
 
     mc->sfx_id = id;
     mc->playing = true;
+    mc->hw_busy = true;
 
     snd_starts_this_frame++;
     return oldest;
@@ -594,6 +617,7 @@ void I_UpdateSound(void)
             mac_channels[i].cache_ptr = NULL;
         }
     }
+
 }
 
 void I_SubmitSound(void) { }
