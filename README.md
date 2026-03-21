@@ -53,6 +53,8 @@ The main ones you'll notice are:
 This program is care-ware. If you enjoy it, do something nice to someone today!
 
 # Release Notes
+• 1.0b4
+- Sound functionality enabled
 • 1.0b3
 - Updated Options screen to enable modification of Half Line and Affine options
   - Half line OFF is highly recommended  for Full Screen to avoid really low-quality visuals
