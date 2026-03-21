@@ -47,6 +47,9 @@ void I_SubmitSound(void);
 // ... shut down and relase at program termination.
 void I_ShutdownSound(void);
 
+// Sound test ladder (debug — triggered by F5)
+void I_SoundTest(void);
+
 
 //
 //  SFX I/O

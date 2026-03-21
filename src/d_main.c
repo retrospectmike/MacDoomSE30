@@ -121,6 +121,9 @@ int fog_scale         = 0;
  * Enabled by scale2x=1 in doom.cfg or -scale2x command line. Default OFF.
  * Max effective screenblocks is capped at 8 in this mode. */
 int opt_scale2x       = 0;
+/* Sound effects: 0=off (silent, zero overhead), 1=on (Sound Manager SFX).
+ * Default OFF to preserve existing performance baseline. */
+int opt_sound         = 0;
 
 extern int detailLevel;   /* defined in m_menu.c */
 
@@ -506,13 +509,15 @@ void D_DoomLoop (void)
 	/* --- sound update --- */
 	{
 	    long _t = I_GetMacTick();
-	    S_UpdateSounds (players[consoleplayer].mo);
+	    if (opt_sound) {
+		S_UpdateSounds (players[consoleplayer].mo);
 #ifndef SNDSERV
-	    I_UpdateSound();
+		I_UpdateSound();
 #endif
 #ifndef SNDINTR
-	    I_SubmitSound();
+		I_SubmitSound();
 #endif
+	    }
 	    prof_sound += I_GetMacTick() - _t;
 	}
 
@@ -1030,6 +1035,7 @@ void D_DoomMain (void)
     if (M_CheckParm ("-halfline"))   opt_halfline      = 1;
     if (M_CheckParm ("-affinetex")) opt_affine_texcol = 1;
     if (M_CheckParm ("-scale2x"))   opt_scale2x       = 1;
+    if (M_CheckParm ("-sound"))    opt_sound         = 1;
     if (M_CheckParm ("-altdeath"))
 	deathmatch = 2;
     else if (M_CheckParm ("-deathmatch"))
@@ -1239,8 +1245,8 @@ void D_DoomMain (void)
     doom_log ("CHKPT: entering M_LoadDefaults\n");
     M_LoadDefaults ();              // load before initing other systems
     doom_log ("CHKPT: M_LoadDefaults done\r");
-    doom_log("D_DoomMain: opt_halfline=%d opt_affinetex=%d opt_solidfloor=%d solidfloor_gray=%d detailLevel=%d opt_scale2x=%d\r",
-             opt_halfline, opt_affine_texcol, opt_solidfloor, solidfloor_gray, detailLevel, opt_scale2x);
+    doom_log("D_DoomMain: opt_halfline=%d opt_affinetex=%d opt_solidfloor=%d solidfloor_gray=%d detailLevel=%d opt_scale2x=%d opt_sound=%d\r",
+             opt_halfline, opt_affine_texcol, opt_solidfloor, solidfloor_gray, detailLevel, opt_scale2x, opt_sound);
 
     printf ("Z_Init: Init zone memory allocation daemon. \n");
     doom_log ("CHKPT: entering Z_Init\n");
@@ -1336,7 +1342,10 @@ void D_DoomMain (void)
     D_CheckNetGame ();
 
     printf ("S_Init: Setting up sound.\n");
-    S_Init (snd_SfxVolume /* *8 */, snd_MusicVolume /* *8*/ );
+    if (opt_sound)
+        S_Init (snd_SfxVolume /* *8 */, snd_MusicVolume /* *8*/ );
+    else
+        I_InitSound();  /* no-op when opt_sound=0, but keeps shutdown symmetric */
 
     printf ("HU_Init: Setting up heads up display.\n");
     HU_Init ();

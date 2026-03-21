@@ -34,6 +34,7 @@ extern int  opt_halfline;
 extern int  opt_affine_texcol;
 extern int  opt_solidfloor;
 extern int  opt_scale2x;
+extern int  opt_sound;
 extern int  fog_scale;
 extern int  solidfloor_gray;
 extern int  detailLevel;
@@ -209,6 +210,7 @@ static void apply_factory_defaults(void)
     fog_scale         = 10240;
     detailLevel       = 2;
     opt_scale2x       = 0;
+    opt_sound         = 1;
     no_lighting       = 0;
     dither_gamma_x100 = 60;
     dither_gblack     = 5;
@@ -228,6 +230,7 @@ static void populate_settings(DialogPtr dlg)
     dlg_set_int(dlg, 28, fog_scale);
     dlg_set_popup(dlg, 29, solidfloor_gray + 1);  /* Shade: 1=White..5=Black */
     dlg_set_popup(dlg, 30, detailLevel + 1);      /* Detail: 1=High, 2=Low, 3=Quad */
+    dlg_set_check(dlg, 32, opt_sound);
 }
 
 static void read_settings(DialogPtr dlg)
@@ -249,6 +252,7 @@ static void read_settings(DialogPtr dlg)
     fog_scale = (v < 0) ? 0 : (v > 65536) ? 65536 : v;
     solidfloor_gray = dlg_get_popup(dlg, 29) - 1;  /* 1-based → 0-based */
     detailLevel = dlg_get_popup(dlg, 30) - 1;
+    opt_sound = dlg_get_check(dlg, 32);
 }
 
 static void ShowSettingsDialog(void)

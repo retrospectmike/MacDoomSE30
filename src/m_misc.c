@@ -210,6 +210,7 @@ extern int	opt_solidfloor;
 extern int	solidfloor_gray;
 extern int	fog_scale;
 extern int	opt_scale2x;
+extern int	opt_sound;
 
 /* dither params — consolidated from doom_dither.cfg into doom.cfg */
 extern int	dither_gamma_x100;  /* gamma ×100: 60 = 0.60, range 5-300 */
@@ -307,6 +308,8 @@ default_t	defaults[] =
     /* 2x pixel-scale mode: render at half resolution, expand to fill 512px Mac screen.
      * Set to 1 to enable. Caps effective screenblocks at 8. Default OFF. */
     {"scale2x",         &opt_scale2x,       0},
+    /* Sound effects: 0=off (silent, zero overhead), 1=on (Sound Manager SFX) */
+    {"opt_sound",       &opt_sound,         0},
 
     /* Dither/display params — consolidated from doom_dither.cfg */
     {"dither_gamma_x100", &dither_gamma_x100, 60 },   /* 0.60 gamma */

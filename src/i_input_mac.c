@@ -13,6 +13,7 @@
 #include "d_event.h"
 #include "d_main.h"
 #include "i_video.h"
+#include "i_sound.h"
 
 /* Mac virtual keycode -> Doom KEY_ mapping */
 static int MacKeyToDoom(int macKey)
@@ -105,7 +106,8 @@ static const struct { int macKey; int doomKey; } kKeyTable[] = {
     {0x17, '5'}, {0x16, '6'}, {0x1A, '7'}, {0x1C, '8'},
     {0x2B, ','}, {0x2F, '.'},
     {0x7A, KEY_F1},  {0x78, KEY_F2},  {0x63, KEY_F3},  {0x76, KEY_F4},
-    {0x60, KEY_F5},  {0x61, KEY_F6},  {0x62, KEY_F7},  {0x64, KEY_F8},
+    /* 0x60 (F5) reserved for sound test ladder */
+    {0x61, KEY_F6},  {0x62, KEY_F7},  {0x64, KEY_F8},
     {0x65, KEY_F9},  {0x6D, KEY_F10}, {0x67, KEY_F11}, {0x6F, KEY_F12},
     {0x1B, KEY_MINUS}, {0x18, KEY_EQUALS},
     {0x71, KEY_PAUSE},
@@ -171,6 +173,15 @@ void I_PollMacInput(void)
             if (is_dn && !was_dn)
                 I_AdjustDither(kDitherKeys[d].param, kDitherKeys[d].delta);
         }
+    }
+
+    /* F5 (0x60) = sound test ladder — fire once on key-down */
+    {
+        int k = 0x60;
+        int was_dn = (prev[k >> 3] >> (k & 7)) & 1;
+        int is_dn  = (curr[k >> 3] >> (k & 7)) & 1;
+        if (is_dn && !was_dn)
+            I_SoundTest();
     }
 
     for (i = 0; kKeyTable[i].macKey >= 0; i++) {

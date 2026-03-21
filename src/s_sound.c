@@ -199,6 +199,8 @@ void S_Init
 // Kills playing sounds at start of level,
 //  determines music if any, changes music.
 //
+extern int opt_sound;
+
 void S_Start(void)
 {
   int cnum;
@@ -206,9 +208,10 @@ void S_Start(void)
 
   // kill all playing sounds at start of level
   //  (trust me - a good idea)
-  for (cnum=0 ; cnum<numChannels ; cnum++)
-    if (channels[cnum].sfxinfo)
-      S_StopChannel(cnum);
+  if (channels)
+    for (cnum=0 ; cnum<numChannels ; cnum++)
+      if (channels[cnum].sfxinfo)
+        S_StopChannel(cnum);
   
   // start new music for the level
   mus_paused = 0;
@@ -266,12 +269,6 @@ S_StartSoundAtVolume
   int		cnum;
   
   mobj_t*	origin = (mobj_t *) origin_p;
-  
-  
-  // Debug.
-  /*fprintf( stderr,
-  	   "S_StartSoundAtVolume: playing sound %d (%s)\n",
-  	   sfx_id, S_sfx[sfx_id].name );*/
   
   // check for bogus sound #
   if (sfx_id < 1 || sfx_id > NUMSFX)
@@ -364,11 +361,8 @@ S_StartSoundAtVolume
   if (sfx->lumpnum < 0)
     sfx->lumpnum = I_GetSfxLumpNum(sfx);
 
-#ifndef SNDSRV
-  /* Sound data not pre-cached — stub sound system, skip silently */
-  if (!sfx->data)
-    return;
-#endif
+  /* Sound data caching is handled inside I_StartSound (i_sound_mac.c).
+   * No need to check sfx->data here. */
   
   // increase the usefulness
   if (sfx->usefulness++ < 0)
@@ -463,6 +457,7 @@ void S_StopSound(void *origin)
 
     int cnum;
 
+    if (!channels) return;
     for (cnum=0 ; cnum<numChannels ; cnum++)
     {
 	if (channels[cnum].sfxinfo && channels[cnum].origin == origin)
@@ -515,11 +510,12 @@ void S_UpdateSounds(void* listener_p)
     int		pitch;
     sfxinfo_t*	sfx;
     channel_t*	c;
-    
+
     mobj_t*	listener = (mobj_t*)listener_p;
 
+    if (!channels) return;
 
-    
+
     // Clean up unused data.
     // This is currently not done for 16bit (sounds cached static).
     // DOS 8bit remains. 

@@ -20,7 +20,15 @@
       "Bash(m68k-apple-macos-gcc:*)",
       "Bash(bash:*)",
       "Bash(git -C /Users/michaeldiaz/develop/doom_se30 log --oneline | head -20)",
-      "Bash(find /Users/michaeldiaz/develop/doom_se30/Retro68-build -name \"*.a\" | xargs nm 2>/dev/null | grep \"^[0-9a-f]* T _open_r\" | head -5)"
+      "Bash(find /Users/michaeldiaz/develop/doom_se30/Retro68-build -name \"*.a\" | xargs nm 2>/dev/null | grep \"^[0-9a-f]* T _open_r\" | head -5)",
+      "Bash(find /Users/michaeldiaz/develop/Retro68-build -name \"*.h\" 2>/dev/null | xargs grep -l \"SndNewChannel\\\\|SndChannel\\\\|SndCommand\" 2>/dev/null | head -10)",
+      "Bash(find /Users/michaeldiaz/develop/Retro68-build -name \"Sound.h\" 2>/dev/null && find /Users/michaeldiaz/develop/Retro68-build -path \"*/CIncludes/Sound.h\" 2>/dev/null && find /Users/michaeldiaz/develop/Retro68-build -path \"*Sound*\" -name \"*.h\" 2>/dev/null | head -10)",
+      "Bash(find /Users/michaeldiaz/develop/Retro68-build -name *.h)",
+      "Bash(find /Users/michaeldiaz/develop/doom_se30/Retro68-build/toolchain -name \"Sound.h\" 2>/dev/null; echo \"===\"; find /Users/michaeldiaz/develop/doom_se30/Retro68-build -name \"*.h\" 2>/dev/null | xargs grep -l \"SndNewChannel\" 2>/dev/null | head -5)",
+      "Bash(find /Users/michaeldiaz/develop/doom_se30/Retro68-build -type f \\\\\\( -name \"*.c\" -o -name \"*.h\" -o -name \"*.cpp\" \\\\\\) 2>/dev/null | head -20)",
+      "Bash(find /Users/michaeldiaz/develop/doom_se30/Retro68-build -iname \"*sound*\" -type f 2>/dev/null | head -20)",
+      "Bash(find /Users/michaeldiaz/develop/doom_se30/Retro68 -type f \\\\\\( -name \"*.c\" -o -name \"*.h\" \\\\\\) 2>/dev/null | grep -i example | head -20)",
+      "Bash(find /Users/michaeldiaz/develop/doom_se30/Retro68 -type d -name \"samples\" -o -type d -name \"test*\" 2>/dev/null | head -10)"
     ]
   }
 }
