@@ -81,10 +81,6 @@ confirmed, or ruled out. Mark status with: `[ ]` untried, `[x]` done, `[-]` trie
   out when fog_scale is set. Needs a separate fog path for sky sectors so the sky
   remains visible. See also TODO.md.
 
-- [ ] **Smaller view window** — Could try a narrower viewport (fewer columns per seg)
-  but QUAD mode is already small — diminishing returns and visual quality degrades
-  quickly.
-
 ---
 
 ## Already Done / Rejected
