@@ -1,4 +1,4 @@
-# DOOM SE/30 — Technical Notes
+# DOOM SE/30 — Source and Port Manual
 ## Architecture, Internals, and SE/30 Port Optimizations
 
 *A technical reference for developers working with this codebase.*
