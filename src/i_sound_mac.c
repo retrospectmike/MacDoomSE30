@@ -43,6 +43,8 @@ static SndCallbackUPP snd_callback_upp = NULL;
 static int snd_starts_this_frame = 0;
 #define SND_MAX_STARTS_PER_FRAME 2
 
+static long saved_output_vol = -1;  /* original system volume, restored on shutdown */
+
 /* ---- callback (runs at interrupt time) ---- */
 
 static pascal void snd_callback(SndChannelPtr chan, SndCommand *cmd)
@@ -94,6 +96,12 @@ void I_InitSound(void)
         mac_num_channels++;
     }
 
+    /* Save system volume so we can restore it on quit */
+    GetDefaultOutputVolume(&saved_output_vol);
+
+    /* Apply Doom's current sfx volume setting */
+    I_ApplySfxVolume();
+
     doom_log("I_InitSound: %d channels allocated (wanted %d)\r",
              mac_num_channels, want);
 }
@@ -121,6 +129,12 @@ void I_ShutdownSound(void)
     if (snd_callback_upp) {
         DisposeSndCallbackUPP(snd_callback_upp);
         snd_callback_upp = NULL;
+    }
+
+    /* Restore system volume */
+    if (saved_output_vol >= 0) {
+        SetDefaultOutputVolume(saved_output_vol);
+        saved_output_vol = -1;
     }
 }
 
@@ -449,7 +463,7 @@ int I_StartSound(int id, int vol, int sep, int pitch, int priority)
     unsigned long scount;
     OSErr err;
 
-    (void)sep; (void)pitch; (void)priority;
+    (void)sep; (void)pitch; (void)priority; (void)vol;
 
     if (!opt_sound || mac_num_channels == 0) {
         return -1;
@@ -626,6 +640,20 @@ void I_UpdateSoundParams(int handle, int vol, int sep, int pitch)
 {
     /* no-op: SndDoImmediate (ampCmd) corrupts sampledSynth channels */
     (void)handle; (void)vol; (void)sep; (void)pitch;
+}
+
+/* ---- System volume via SetDefaultOutputVolume (Sound Manager 3.0) ---- */
+
+void I_ApplySfxVolume(void)
+{
+    extern int snd_SfxVolume;   /* 0-14, even steps */
+    int level = snd_SfxVolume >> 1;  /* 0-7 */
+    long vol;
+    if (level < 0) level = 0;
+    if (level > 7) level = 7;
+    /* 0x0100 = full volume; scale linearly: level * 0x0100 / 7 */
+    vol = (long)level * 0x0100L / 7;
+    SetDefaultOutputVolume((vol << 16) | vol);  /* both channels same */
 }
 
 /* ---- Music stubs (no music support) ---- */

@@ -20,6 +20,9 @@
 - [ ] **Keep optimizing** for more FPS esp to bring the low end up.  See docs OPTIMIZATION_IDEAS.md and PERFORMANCE_HISTORY.md for extensive records.
 - [ ] **Fix sky clipping** rendering bugs when OPTION "solid fill ceiling/floor" texture rendering is set to OFF
 
+### Save/Load
+- [ ] **Load game crashes** — menu Load Game causes a crash. Save game may or may not work.
+
 ### Stability / Exit
 - [x] ~~**Missing WAD detection**~~ — shows message on bg_window + waits for click/key, then clean exit; done.
 - [ ] **Monitor for CHK errors, other crashes on exit** (Basilisk II and Snow) — observed once; likely transient

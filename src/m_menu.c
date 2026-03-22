@@ -55,6 +55,7 @@ rcsid[] = "$Id: m_menu.c,v 1.7 1997/02/03 22:45:10 b1 Exp $";
 #include "m_swap.h"
 
 #include "s_sound.h"
+#include "i_sound.h"
 
 #include "doomstat.h"
 
@@ -820,16 +821,21 @@ void M_SfxVol(int choice)
     switch(choice)
     {
       case 0:
-	if (snd_SfxVolume)
-	    snd_SfxVolume--;
+	if (snd_SfxVolume >= 2)
+	    snd_SfxVolume -= 2;
+	else
+	    snd_SfxVolume = 0;
 	break;
       case 1:
-	if (snd_SfxVolume < 15)
-	    snd_SfxVolume++;
+	if (snd_SfxVolume <= 12)
+	    snd_SfxVolume += 2;
+	else
+	    snd_SfxVolume = 14;
 	break;
     }
-	
-    S_SetSfxVolume(snd_SfxVolume /* *8 */);
+
+    S_SetSfxVolume(snd_SfxVolume);
+    I_ApplySfxVolume();
 }
 
 void M_MusicVol(int choice)
