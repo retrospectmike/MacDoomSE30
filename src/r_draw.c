@@ -1731,6 +1731,12 @@ void R_DrawColumnQuadLow_Mono(void)
         quad_dbg_done = 1;
     }
 
+    /* Cache globals as locals — GCC reloads dc_source and fb_mono_rowbytes
+     * after every *dst write because unsigned char* can alias any global.
+     * Local copies break the alias chain → GCC keeps them in registers. */
+    const byte     *l_source   = dc_source;
+    int             l_rowbytes = fb_mono_rowbytes;
+
     if (opt_halfline) {
         /* Halfline path: render even rows only, alternating between two Bayer rows.
          * qt_a/qt_b point into the precomputed nibble table for the two Bayer rows
@@ -1740,6 +1746,7 @@ void R_DrawColumnQuadLow_Mono(void)
         int          nrows;
         unsigned int gray;
         const byte  *qt_a, *qt_b;
+        int          l_rowstep;
 
         if ((start_y + viewwindowy) & 1) { start_y++; count--; }
         if (count < 0) return;
@@ -1750,43 +1757,44 @@ void R_DrawColumnQuadLow_Mono(void)
         frac     = dc_texturemid + (start_y - centery) * dc_iscale;
 
         dst   = (unsigned char *)fb_mono_base
-                + (start_y + viewwindowy + fb_mono_yoff) * fb_mono_rowbytes
+                + (start_y + viewwindowy + fb_mono_yoff) * l_rowbytes
                 + (fb_x >> 3);
         nrows = (count >> 1) + 1;
         prof_r_pixels += nrows * 4;
+        l_rowstep = l_rowbytes << 1;
 
         if (is_high) {
             qt_a = quad_nibble_hi[bayer_y];
             qt_b = quad_nibble_hi[(bayer_y + 1) & 3];
             while (nrows >= 2) {
-                COLMONO_GRAY(frac, dc_source, mono_cm, gray);
+                COLMONO_GRAY(frac, l_source, mono_cm, gray);
                 *dst = (*dst & 0x0F) | qt_a[gray];
-                dst += fb_mono_rowbytes << 1; frac += fracstep;
+                dst += l_rowstep; frac += fracstep;
 
-                COLMONO_GRAY(frac, dc_source, mono_cm, gray);
+                COLMONO_GRAY(frac, l_source, mono_cm, gray);
                 *dst = (*dst & 0x0F) | qt_b[gray];
-                dst += fb_mono_rowbytes << 1; frac += fracstep;
+                dst += l_rowstep; frac += fracstep;
                 nrows -= 2;
             }
             if (nrows > 0) {
-                COLMONO_GRAY(frac, dc_source, mono_cm, gray);
+                COLMONO_GRAY(frac, l_source, mono_cm, gray);
                 *dst = (*dst & 0x0F) | qt_a[gray];
             }
         } else {
             qt_a = quad_nibble_lo[bayer_y];
             qt_b = quad_nibble_lo[(bayer_y + 1) & 3];
             while (nrows >= 2) {
-                COLMONO_GRAY(frac, dc_source, mono_cm, gray);
+                COLMONO_GRAY(frac, l_source, mono_cm, gray);
                 *dst = (*dst & 0xF0) | qt_a[gray];
-                dst += fb_mono_rowbytes << 1; frac += fracstep;
+                dst += l_rowstep; frac += fracstep;
 
-                COLMONO_GRAY(frac, dc_source, mono_cm, gray);
+                COLMONO_GRAY(frac, l_source, mono_cm, gray);
                 *dst = (*dst & 0xF0) | qt_b[gray];
-                dst += fb_mono_rowbytes << 1; frac += fracstep;
+                dst += l_rowstep; frac += fracstep;
                 nrows -= 2;
             }
             if (nrows > 0) {
-                COLMONO_GRAY(frac, dc_source, mono_cm, gray);
+                COLMONO_GRAY(frac, l_source, mono_cm, gray);
                 *dst = (*dst & 0xF0) | qt_a[gray];
             }
         }
@@ -1799,22 +1807,22 @@ void R_DrawColumnQuadLow_Mono(void)
         bayer_y  = (dc_yl + viewwindowy) & 3;
 
         dst = (unsigned char *)fb_mono_base
-              + (dc_yl + viewwindowy + fb_mono_yoff) * fb_mono_rowbytes
+              + (dc_yl + viewwindowy + fb_mono_yoff) * l_rowbytes
               + (fb_x >> 3);
         prof_r_pixels += (count + 1) * 4;
 
         if (is_high) {
             while (count-- >= 0) {
-                COLMONO_GRAY(frac, dc_source, mono_cm, gray);
+                COLMONO_GRAY(frac, l_source, mono_cm, gray);
                 *dst = (*dst & 0x0F) | quad_nibble_hi[bayer_y][gray];
-                dst += fb_mono_rowbytes; frac += fracstep;
+                dst += l_rowbytes; frac += fracstep;
                 bayer_y = (bayer_y + 1) & 3;
             }
         } else {
             while (count-- >= 0) {
-                COLMONO_GRAY(frac, dc_source, mono_cm, gray);
+                COLMONO_GRAY(frac, l_source, mono_cm, gray);
                 *dst = (*dst & 0xF0) | quad_nibble_lo[bayer_y][gray];
-                dst += fb_mono_rowbytes; frac += fracstep;
+                dst += l_rowbytes; frac += fracstep;
                 bayer_y = (bayer_y + 1) & 3;
             }
         }

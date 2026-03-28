@@ -108,6 +108,7 @@ boolean		singletics = false; // debug flag to cancel adaptiveness
 int opt_halfline      = 0;
 int opt_affine_texcol = 0;
 int opt_solidfloor    = 0;
+int opt_directfb      = 0;   /* 1 = skip double-buffer, render direct to screen */
 /* Gray fill level for solid floor/ceiling: 0=white 1=25% 2=50% 3=~88% 4=black */
 int solidfloor_gray   = 0;
 /* Distance fog threshold (fixed_t scale units; 0=off).
@@ -1039,6 +1040,7 @@ void D_DoomMain (void)
     if (M_CheckParm ("-halfline"))   opt_halfline      = 1;
     if (M_CheckParm ("-affinetex")) opt_affine_texcol = 1;
     if (M_CheckParm ("-scale2x"))   opt_scale2x       = 1;
+    if (M_CheckParm ("-directfb"))  opt_directfb      = 1;
     if (M_CheckParm ("-sound"))    opt_sound         = 1;
     if (M_CheckParm ("-altdeath"))
 	deathmatch = 2;
@@ -1249,8 +1251,8 @@ void D_DoomMain (void)
     doom_log ("CHKPT: entering M_LoadDefaults\n");
     M_LoadDefaults ();              // load before initing other systems
     doom_log ("CHKPT: M_LoadDefaults done\r");
-    doom_log("D_DoomMain: opt_halfline=%d opt_affinetex=%d opt_solidfloor=%d solidfloor_gray=%d detailLevel=%d opt_scale2x=%d opt_sound=%d monster_throttle=%d\r",
-             opt_halfline, opt_affine_texcol, opt_solidfloor, solidfloor_gray, detailLevel, opt_scale2x, opt_sound, monster_throttle_dist);
+    doom_log("D_DoomMain: opt_halfline=%d opt_affinetex=%d opt_solidfloor=%d solidfloor_gray=%d detailLevel=%d opt_scale2x=%d opt_directfb=%d opt_sound=%d monster_throttle=%d\r",
+             opt_halfline, opt_affine_texcol, opt_solidfloor, solidfloor_gray, detailLevel, opt_scale2x, opt_directfb, opt_sound, monster_throttle_dist);
 
     printf ("Z_Init: Init zone memory allocation daemon. \n");
     doom_log ("CHKPT: entering Z_Init\n");

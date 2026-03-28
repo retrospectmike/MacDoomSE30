@@ -116,10 +116,10 @@ set_source_files_properties(d_main.c PROPERTIES
     COMPILE_FLAGS "-O2 -fno-omit-frame-pointer"
 )
 
-# -funroll-loops only on the renderer files that benefit from it.
-# NOT applied globally: the 68030 has a 256-byte instruction cache, and
-# unrolling blit loops in i_video_mac.c blows the cache → blit regression.
-# r_draw.c and r_segs.c have tight inner loops that fit in cache even unrolled.
-set_source_files_properties(r_draw.c r_segs.c r_bsp.c PROPERTIES
+# -funroll-loops only on files whose inner loops stay under 256 bytes unrolled.
+# 68030 has a 256-byte I-cache; unrolling beyond that causes thrashing.
+# r_segs.c EXCLUDED: R_RenderSegLoop was 384-542 bytes unrolled.
+# r_draw.c EXCLUDED: R_DrawColumnQuadLow_Mono was 424 bytes unrolled (already 2x manual).
+set_source_files_properties(r_bsp.c PROPERTIES
     COMPILE_FLAGS "-funroll-loops"
 )

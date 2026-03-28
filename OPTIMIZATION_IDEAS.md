@@ -46,14 +46,45 @@ confirmed, or ruled out. Mark status with: `[ ]` untried, `[x]` done, `[-]` trie
   gameplay. Further reduction would require either a faster threshold blit or skipping
   the full-screen blit on unchanged non-game frames (dirty-rect tracking).
 
-- [ ] **2× mode: direct expand to real_fb_base (skip double-buffer flip)** — Profiled
-  2026-03-14: the entire 2× performance gap vs non-2× (−1.6 FPS mean, −24%) is the
-  expand+flip pipeline. 2× flip copies 18,432 bytes/frame (64×288 rows) vs 8,000 for
-  non-2×. If we expand directly into `real_fb_base` instead of `fb_offscreen_buf`, the
-  18KB flip is eliminated entirely. Risk: tearing if the Mac's 70.7 Hz raster catches
-  the expand mid-write. With halfline (only 64 source rows → 128 dest rows in the view),
-  the expand window is short; likely acceptable on Basilisk II, may show artifacts on real
-  SE/30 at 16 MHz. Worth testing in Basilisk II first — if clean, a significant win.
+- [-] **Direct framebuffer rendering (skip double-buffer flip)** — Tested 2026-03-25
+  for the non-2× path (`opt_directfb`). Eliminated the 8,000-byte flip (40×200, 10
+  unrolled MOVE.L/row) by rendering directly to video RAM.
+
+  **Result: 20% REGRESSION** (mean 5.3 vs 6.6, median 5.1 vs 6.4, min 1.5 vs 3.8).
+  Also produced visible full-black flash every frame from solidfloor's per-frame
+  `memset` of the view area (line 894, `r_main.c`) — previously invisible behind the
+  double buffer.
+
+  **Key finding — why the double buffer is FASTER than direct rendering:**
+  The double buffer batches all video RAM writes into one tight sequential burst
+  (2,000 MOVE.L in an unrolled loop). Without it, video RAM gets hit by hundreds of
+  scattered column renderer calls (BSET/BCLR = read-modify-write, 2 bus cycles each),
+  solidfloor fills, and span writes — all at unpredictable addresses.
+
+  Two hypotheses for the slowdown (not yet confirmed which dominates):
+
+  **(A) 68030 data cache effect.** If System 7.5 enables the data cache (CACR bit 8),
+  writes to the offscreen buffer in main RAM benefit from cache-line locality — nearby
+  reads (e.g. RMW for bit operations) hit cache (~4 cycles) instead of external bus
+  (~20+ cycles). The sequential flip to video RAM is write-through regardless but is
+  maximally bus-efficient. Scattered direct writes to video RAM get zero cache benefit
+  on reads. **Status: unconfirmed — need to read CACR at startup to verify data cache
+  is actually enabled.**
+
+  **(B) Emulator dirty-page tracking artifact.** On real SE/30 hardware, video RAM IS
+  main RAM — same DRAM, same bus. Basilisk II / Snow track writes to the video RAM
+  address range to know which screen regions to redraw on the host. Hundreds of
+  scattered writes = hundreds of dirty-page checks on the host side. One sequential
+  flip = one contiguous dirty region. This overhead is emulator-only and would not
+  exist on real hardware. **Status: unconfirmed — need to test directfb on real SE/30.**
+
+  **To confirm:** (1) Read CACR register at startup and log data cache state.
+  (2) Test directfb on real SE/30. If directfb is same speed on real HW but slower
+  in emulator, hypothesis B is the cause.
+
+  The 2× path (18,432-byte flip) was not tested. The larger flip cost may still make
+  direct rendering worthwhile for 2×, but the same scattered-write penalty applies.
+  Unlikely to be a net win without addressing the solidfloor pre-clear.
 
 
 - [x] **R_ScaleFromGlobalAngle — reduce FixedDiv calls** — **Done 2026-03-10.** Inlined
@@ -85,6 +116,15 @@ confirmed, or ruled out. Mark status with: `[ ]` untried, `[x]` done, `[-]` trie
   out when fog_scale is set. Needs a separate fog path for sky sectors so the sky
   remains visible. See also TODO.md.
 
+- [x] **68030 I-cache optimization (segloop + colfunc)** — **Done 2026-03-28.** Fit
+  `R_RenderSegLoop` (542→230 B) and `R_DrawColumnQuadLow_Mono` (424→82 B) into the
+  256-byte I-cache via: removed `-funroll-loops` from r_segs.c and r_draw.c, outlined
+  cold paths (visplane marking, non-affine texcol), cached globals as locals to eliminate
+  6-byte absolute-address loads (20 per loop iteration → 6), inlined `R_GetColumn`.
+  Result: mean +9.7%, peak 12.0 FPS (new Snow record), segloop −19%, render −8.7%.
+  Applicable pattern: any inner loop >256 B with global reloads after indirect calls
+  or `char*` writes benefits from local caching.
+
 ---
 
 ## Already Done / Rejected
@@ -110,10 +150,17 @@ confirmed, or ruled out. Mark status with: `[ ]` untried, `[x]` done, `[-]` trie
   Likely cause: larger code footprint thrashing 68030's 256-byte instruction cache.
   Recursive version's tiny code body fits in cache; iterative version with two stack
   arrays and inner pop loop does not. Reverted 2026-03-21.
-- [-] **R_PointToDist elimination** — Replaced `SlopeDiv`+`FixedDiv` (~280 cycles) with
-  direct perpendicular dot-product (2× FixedMul, ~80 cycles) for `rw_distance` and
-  `rw_offset` in `R_StoreWallRange`. Bundled with iterative BSP; reverted together.
-  May be worth retesting in isolation. (2026-03-21)
+- [x] **R_PointToDist elimination (rw_offset)** — **Done 2026-03-26.** Replaced
+  `R_PointToDist` (2× FixedDiv ~280 cycles) + `FixedMul` (~44 cycles) with direct
+  dot-product of (view−v1) onto wall direction (2× FixedMul ~88 cycles) for `rw_offset`
+  in `R_StoreWallRange`. `rw_distance` was already dot-product (Phase 2C).
+  Previously bundled with iterative BSP and reverted (2026-03-21); retested in isolation.
+  Result: render −11.5%, BSP −13.8%, peak 9.4 FPS (new Snow high). `R_PointToDist`
+  now has zero callers (dead code, kept in place).
 - [x] **Bulk sprite init I/O** — `R_InitSpriteLumps` replaced 1381 individual `lseek`+`read`
   calls with single 3.6 MB bulk read into temp buffer, headers parsed in-memory.
   Reduces startup time on SCSI. (2026-03-21)
+- [x] **68030 I-cache: segloop + colfunc** — Fit R_RenderSegLoop (542→230 B) and
+  R_DrawColumnQuadLow_Mono (424→82 B) into 256-byte I-cache. Removed -funroll-loops,
+  outlined cold paths, cached globals as locals, inlined R_GetColumn. +9.7% mean FPS,
+  peak 12.0. (2026-03-28)

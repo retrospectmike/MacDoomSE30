@@ -1784,6 +1784,7 @@ void M_Drawer (void)
 	    }
 				
 	    x = 160 - M_StringWidth(string)/2;
+	    if (x < 0) x = 0;
 	    M_WriteText(x,y,string);
 	    y += SHORT(hu_font[0]->height);
 	}

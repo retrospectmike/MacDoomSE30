@@ -10,6 +10,115 @@ Newest entries at top. Add new entries here after each significant change.
 
 ---
 
+## 2026-03-28 — 68030 I-Cache Optimization (r_segs.c, r_draw.c, CMakeLists.txt)
+**Emulator: Snow (debug build)**
+**Config: detailLevel=2 halfline=1 affinetex=1 solidfloor=1 solidfloor_gray=4**
+
+Systematic optimization to fit the two hottest inner loops — `R_RenderSegLoop` (column
+dispatch) and `R_DrawColumnQuadLow_Mono` (pixel rendering) — into the 68030's 256-byte
+instruction cache. Three techniques applied:
+
+1. **Removed `-funroll-loops`** from r_segs.c and r_draw.c. GCC's 4× unrolling expanded
+   loops well past 256 bytes. The source already has manual 2× unrolling where beneficial.
+2. **Outlined cold paths** from the segloop: visplane marking (`R_MarkVisplanes`, noinline)
+   and non-affine texture column computation (`R_CalcTexColNonAffine`, noinline). These
+   are rarely/never taken with solidfloor=1 and affinetex=1.
+3. **Cached globals as locals** in both functions. GCC reloads globals after every indirect
+   call (`colfunc()`) or `char*` write (`*dst = ...`) due to aliasing rules. Copying
+   loop-invariant globals (`rw_scalestep`, `rw_stopx`, `fog_scale`, `midtexture`,
+   `walllights`, etc.) and stepped globals (`rw_scale`, `topfrac`, `bottomfrac`, `rw_x`)
+   to locals lets GCC keep them in registers across the entire loop.
+4. **Inlined `R_GetColumn`** into r_segs.c as `R_GetColumn_Fast` (static inline), eliminating
+   ~42 cycles of JSR/RTS overhead per column per texture tier.
+
+Inner loop sizes (disassembled):
+
+| Loop | Before | After | I-cache fit? |
+|------|--------|-------|-------------|
+| R_RenderSegLoop (midtexture) | 542 B (unrolled) | **230 B** | **Yes** (26 B spare) |
+| R_DrawColumnQuadLow_Mono (halfline) | 424 B (unrolled) | **82 B** | **Yes** (174 B spare) |
+
+| Metric | Dot-product baseline | **I-cache optimized** | Delta |
+|--------|---------------------|----------------------|-------|
+| Frames | 52 | 70 | — |
+| Mean FPS | 5.54 | **6.08** | **+9.7%** |
+| Median FPS | — | **5.7** | — |
+| Min FPS | 1.6 | 1.5 | — |
+| Max FPS | 9.4 | **12.0** | **+2.6 (new Snow record)** |
+| Render ticks (mean) | 41.6 | **38.0** | **−8.7%** |
+| BSP ticks (mean) | 30.7 | **27.6** | **−10.1%** |
+| Segloop ticks (mean) | ~19* | **15.3** | **−19%** |
+
+*Segloop not separately tracked in baseline; estimated from intermediate build.
+
+Key insight: on the 68030, the cost of a 6-byte absolute-address global load (`movel 0x...,%d0`)
+is not just the memory access — it inflates loop code size by ~6 bytes per access. The
+R_RenderSegLoop had 20 such accesses (120 bytes = 38% of the loop). Replacing them with
+2-byte register ops (`addql`, `cmpl %sp@(N)`) simultaneously makes the code faster AND
+smaller, creating a virtuous cycle with the I-cache.
+
+**Verdict: keep. Largest single optimization since Phase 4 direct 1-bit renderers.**
+
+---
+
+## 2026-03-26 — R_PointToDist Dot-Product Elimination (r_segs.c)
+**Emulator: Snow (debug build)**
+**Config: detailLevel=2 halfline=1 affinetex=1 solidfloor=1 solidfloor_gray=4**
+
+Replaced `R_PointToDist` (2× FixedDiv + 1× FixedMul ≈ 460 cycles) with direct
+dot-product of `(viewx−v1x, viewy−v1y)` onto wall direction vector (2× FixedMul ≈ 88
+cycles) for `rw_offset` computation in `R_StoreWallRange`. The `rw_distance` computation
+was already converted to dot-product in Phase 2C. This change was previously bundled
+with the iterative BSP rewrite (which regressed 10%) and reverted together. Retested
+in isolation — the dot-product itself is a clear win.
+
+| Metric | Previous build | Dot-product build | Delta |
+|--------|---------------|-------------------|-------|
+| Frames | 80 | 52 | — |
+| Mean FPS | 5.23 | **5.54** | **+5.9%** |
+| Min FPS | 1.5 | 1.6 | +0.1 |
+| Max FPS | 8.4 | **9.4** | **+1.0 (new Snow high)** |
+| Render ticks (mean) | 47.0 | **41.6** | **−11.5%** |
+| BSP ticks (mean) | 35.6 | **30.7** | **−13.8%** |
+| Segs/frame (mean) | 133.6 | 124.8 | (scene variation) |
+
+Savings: ~370 cycles per textured seg × ~130 segs/frame ≈ 48K cycles/frame.
+`R_PointToDist` now has zero callers (dead code, kept in r_main.c).
+**Verdict: keep.**
+
+---
+
+## 2026-03-25 — Direct Framebuffer (directfb) — REGRESSION
+**Emulator: Snow (debug build)**
+**Config: detailLevel=2 halfline=1 affinetex=1 solidfloor=1 solidfloor_gray=4 directfb=1**
+
+Tested skipping the double-buffer flip by rendering directly to video RAM (`opt_directfb=1`).
+Eliminated the 8,000-byte per-frame memcpy (200 rows × 40 bytes, 10 unrolled MOVE.L/row).
+
+| Metric | Double-buffer (baseline 03-13) | directfb (this run) | Delta |
+|--------|-------------------------------|---------------------|-------|
+| Frames | ~90 | 57 | — |
+| Mean FPS | **6.6** | **5.3** | −1.3 (−20%) |
+| Median FPS | **6.4** | **5.1** | −1.3 (−20%) |
+| Min FPS | 3.8 | 1.5 | −2.3 |
+| Max FPS | 10.0 | 9.1 | −0.9 |
+
+**Visual:** full-black flash every frame from solidfloor's per-frame `memset` of the
+view area (`r_main.c:894`) — previously invisible behind the double buffer.
+
+**Root cause (under investigation):** The double buffer consolidates all video RAM
+writes into one fast sequential burst (2,000 MOVE.L). Without it, video RAM is hit by
+hundreds of scattered column/span renderer writes (BSET/BCLR read-modify-write) at
+unpredictable addresses. Two hypotheses: (A) 68030 data cache locality benefit for
+offscreen buffer writes in main RAM, lost when writing directly to video RAM; (B)
+emulator dirty-page tracking overhead on scattered video RAM writes (would not exist on
+real SE/30 where video RAM = main RAM). See OPTIMIZATION_IDEAS.md for full analysis.
+
+**Verdict: rejected.** Double-buffer flip is not just flicker prevention — it's a
+performance optimization that batches slow scattered writes into one fast sequential copy.
+
+---
+
 ## Configuration Options Reference — 2026-03-14
 
 All SE/30-specific options, their ranges, typical test values, and performance impact.

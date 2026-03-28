@@ -210,6 +210,7 @@ extern int	opt_solidfloor;
 extern int	solidfloor_gray;
 extern int	fog_scale;
 extern int	opt_scale2x;
+extern int	opt_directfb;
 extern int	opt_sound;
 extern int	monster_throttle_dist;
 
@@ -309,6 +310,8 @@ default_t	defaults[] =
     /* 2x pixel-scale mode: render at half resolution, expand to fill 512px Mac screen.
      * Set to 1 to enable. Caps effective screenblocks at 8. Default OFF. */
     {"scale2x",         &opt_scale2x,       0},
+    /* directfb: skip double-buffer, render direct to screen (may tear) */
+    {"directfb",        &opt_directfb,      0},
     /* Sound effects: 0=off (silent, zero overhead), 1=on (Sound Manager SFX) */
     {"opt_sound",       &opt_sound,         0},
     /* monster_throttle_dist: map-unit distance beyond which P_Move is

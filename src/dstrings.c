@@ -38,15 +38,15 @@ char* endmsg[NUM_QUITMESSAGES+1]=
   QUITMSG,
   "please don't leave, there's more\ndemons to toast!",
   "let's beat it -- this is turning\ninto a bloodbath!",
-  "i wouldn't leave if i were you.\ndos is much worse.",
-  "you're trying to say you like dos\nbetter than me, right?",
+  "i wouldn't leave if i were you.\nSystem 7 is much worse.",
+  "you're trying to say you like the Finder\nbetter than me, right?",
   "don't leave yet -- there's a\ndemon around that corner!",
   "ya know, next time you come in here\ni'm gonna toast ya.",
   "go ahead and leave. see if i care."
 
   // QuitDOOM II messages
   "you want to quit?\nthen, thou hast lost an eighth!",
-  "don't go now, there's a \ndimensional shambler waiting\nat the dos prompt!",
+  "don't go now, there's a \ndimensional shambler waiting\nin the Finder!",
   "get outta here and go back\nto your boring programs.",
   "if i were your boss, i'd \n deathmatch ya in a minute!",
   "look, bud. you leave now\nand you forfeit your body count!",

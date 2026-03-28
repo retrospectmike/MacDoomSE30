@@ -137,7 +137,12 @@ static unsigned char *fb_offscreen_buf = NULL; /* off-screen rendering target */
  *   s_phys_xoff_byte = 12   (= (512-320)/2/8, byte column of game area left edge)
  *   s_phys_yoff      = 71   (= (342-200)/2,   row of game area top edge)
  * -------------------------------------------------------------------------*/
-extern int opt_scale2x; /* defined in d_main.c */
+extern int opt_scale2x;  /* defined in d_main.c */
+extern int opt_directfb; /* defined in d_main.c */
+
+/* Output framebuffer for non-direct paths (menu/wipe/title).
+ * In directfb mode there's no fb_offscreen_buf — write to fb_mono_base (the screen). */
+#define FB_OUT (fb_offscreen_buf ? fb_offscreen_buf : (unsigned char *)fb_mono_base)
 
 static unsigned char  fb_source_buf[128 * 32]; /* 4096 B: compact view render target */
 static unsigned short expand2x_lut[256];        /* bit-doubling LUT, big-endian       */
@@ -404,8 +409,24 @@ void I_AdjustDither(int param, int delta)
     I_RebuildDitherPalette();
 }
 
+/* Log 68030 CACR (Cache Control Register) state at startup.
+ * MOVEC is privileged but Classic Mac OS runs in supervisor mode. */
+static void I_LogCacheState(void)
+{
+    unsigned long cacr_val = 0;
+    __asm__ __volatile__("movec %%cacr,%0" : "=d"(cacr_val));
+    doom_log("CACR: 0x%08lX icache=%s dcache=%s dburst=%s walloc=%s\r",
+             cacr_val,
+             (cacr_val & 0x0001) ? "ON" : "OFF",   /* bit 0:  I-cache enable */
+             (cacr_val & 0x0100) ? "ON" : "OFF",   /* bit 8:  D-cache enable */
+             (cacr_val & 0x1000) ? "ON" : "OFF",   /* bit 12: D-cache burst  */
+             (cacr_val & 0x2000) ? "ON" : "OFF");  /* bit 13: write allocate */
+}
+
 void I_InitGraphics(void)
 {
+    I_LogCacheState();
+
     BitMap *screen = &qd.screenBits;
     fb_mono_base     = (byte *)screen->baseAddr;
     fb_mono_rowbytes = screen->rowBytes;
@@ -418,11 +439,6 @@ void I_InitGraphics(void)
                  screen->bounds.right - screen->bounds.left,
                  fb_height, fb_mono_rowbytes, fb_mono_xoff, fb_mono_yoff);
 
-        /* Allocate off-screen buffer for double-buffering.
-         * All rendering (R_DrawColumn_Mono / R_DrawSpan_Mono / I_FinishUpdate blit)
-         * writes here via fb_mono_base.  At the end of each I_FinishUpdate the
-         * completed frame is memcpy'd to the real screen in one shot, so the user
-         * never sees a partially-rendered frame. */
         /* Save physical screen layout constants — used by I_FinishUpdate for
          * both normal and 2x mode (non-direct blit, flip, menu overlay). */
         s_phys_rbytes    = fb_mono_rowbytes;                              /* 64 */
@@ -430,14 +446,26 @@ void I_InitGraphics(void)
         s_phys_xoff_byte = fb_mono_xoff / 8;                             /* 12 */
         s_phys_yoff      = fb_mono_yoff;                                  /* 71 */
 
-        fb_offscreen_buf = (unsigned char *)malloc((size_t)fb_mono_rowbytes * fb_height);
-        if (!fb_offscreen_buf)
-            I_Error("I_InitGraphics: failed to allocate off-screen buffer");
-        memset(fb_offscreen_buf, 0, (size_t)fb_mono_rowbytes * fb_height);
-        real_fb_base = fb_mono_base;     /* save real screen pointer */
-        fb_mono_base = fb_offscreen_buf; /* redirect all rendering to off-screen */
-        doom_log("I_InitGraphics: off-screen buffer %d bytes, real_fb=%p off_fb=%p\r",
-                 fb_mono_rowbytes * fb_height, real_fb_base, (void *)fb_mono_base);
+        if (opt_directfb && !opt_scale2x) {
+            /* directfb: render straight to screen, no double-buffer.
+             * fb_mono_base stays pointing at real screen memory.
+             * real_fb_base stays NULL so the flip in I_FinishUpdate is skipped. */
+            real_fb_base     = NULL;
+            fb_offscreen_buf = NULL;
+            doom_log("I_InitGraphics: directfb mode, no double-buffer\r");
+        } else {
+            /* Allocate off-screen buffer for double-buffering.
+             * All rendering writes here via fb_mono_base.  I_FinishUpdate
+             * copies the completed frame to real_fb_base in one shot. */
+            fb_offscreen_buf = (unsigned char *)malloc((size_t)fb_mono_rowbytes * fb_height);
+            if (!fb_offscreen_buf)
+                I_Error("I_InitGraphics: failed to allocate off-screen buffer");
+            memset(fb_offscreen_buf, 0, (size_t)fb_mono_rowbytes * fb_height);
+            real_fb_base = fb_mono_base;     /* save real screen pointer */
+            fb_mono_base = fb_offscreen_buf; /* redirect all rendering to off-screen */
+            doom_log("I_InitGraphics: off-screen buffer %d bytes, real_fb=%p off_fb=%p\r",
+                     fb_mono_rowbytes * fb_height, real_fb_base, (void *)fb_mono_base);
+        }
 
         /* 2x pixel-scale mode: further redirect fb_mono_base to the compact
          * source buffer.  R_ExecuteSetViewSize later sets fb_mono_rowbytes to
@@ -704,7 +732,7 @@ void I_FinishUpdate(void)
     if (opt_scale2x) {
         static int last_2x_dest_y0 = -1;
         if (scale2x_dest_y0 != last_2x_dest_y0) {
-            memset(fb_offscreen_buf, 0xFF, (size_t)s_phys_rbytes * s_phys_height);
+            memset(FB_OUT, 0xFF, (size_t)s_phys_rbytes * s_phys_height);
             if (real_fb_base)
                 memset(real_fb_base, 0xFF, (size_t)s_phys_rbytes * s_phys_height);
             last_2x_dest_y0 = scale2x_dest_y0;
@@ -720,7 +748,7 @@ void I_FinishUpdate(void)
         boolean do_border = (border_needs_blit || !last_direct);
         if (do_border) border_needs_blit = 0;
 
-        expand2x_blit(fb_source_buf, fb_offscreen_buf,
+        expand2x_blit(fb_source_buf, FB_OUT,
                       viewheight, scale2x_src_rbytes,
                       scale2x_dest_x0, scale2x_dest_y0, s_phys_rbytes);
 
@@ -729,7 +757,7 @@ void I_FinishUpdate(void)
             const int sbar0 = SCREENHEIGHT - SBARHEIGHT;
             for (y = 0; y < SBARHEIGHT; y++) {
                 const byte    *sr  = src + (sbar0 + y) * SCREENWIDTH;
-                unsigned char *dst = fb_offscreen_buf
+                unsigned char *dst = FB_OUT
                                      + (scale2x_sbar_y0 + y) * s_phys_rbytes
                                      + s_phys_xoff_byte;
                 for (x = 0; x < SCREENWIDTH; x += 8) *dst++ = blit8_sbar_thresh(sr + x);
@@ -742,7 +770,7 @@ void I_FinishUpdate(void)
             for (vy = 0; vy < viewheight; vy++) {
                 const byte    *sr  = src + vy * SCREENWIDTH;
                 int            dr  = scale2x_dest_y0 + vy * 2;
-                unsigned char *dp0 = fb_offscreen_buf + dr * s_phys_rbytes + scale2x_dest_x0;
+                unsigned char *dp0 = FB_OUT + dr * s_phys_rbytes + scale2x_dest_x0;
                 unsigned char *dp1 = dp0 + s_phys_rbytes;
                 int sx;
                 for (sx = 0; sx < scaledviewwidth; sx += 8) {
@@ -860,17 +888,18 @@ void I_FinishUpdate(void)
         int col_bytes = SCREENWIDTH >> 3;         /* 40 bytes per row */
 
         if (menuactive) {
+            unsigned char *fb = FB_OUT;
             if (!menu_bg_valid) {
-                /* First menu frame: snapshot current fb_offscreen_buf (game frame) */
+                /* First menu frame: snapshot current framebuffer (game frame) */
                 for (y = 0; y < SCREENHEIGHT; y++)
                     memcpy(menu_bg_1bit + y * col_bytes,
-                           fb_offscreen_buf + (y + s_phys_yoff) * s_phys_rbytes + col_off,
+                           fb + (y + s_phys_yoff) * s_phys_rbytes + col_off,
                            col_bytes);
                 menu_bg_valid = true;
             } else {
                 /* Subsequent menu frames: restore frozen game frame */
                 for (y = 0; y < SCREENHEIGHT; y++)
-                    memcpy(fb_offscreen_buf + (y + s_phys_yoff) * s_phys_rbytes + col_off,
+                    memcpy(fb + (y + s_phys_yoff) * s_phys_rbytes + col_off,
                            menu_bg_1bit + y * col_bytes,
                            col_bytes);
             }
@@ -879,7 +908,7 @@ void I_FinishUpdate(void)
             /* Full screens[0] blit for wipe/title/intermission (unchanged) */
             for (y = 0; y < SCREENHEIGHT; y++) {
                 const byte    *sr  = src + y * SCREENWIDTH;
-                unsigned char *dst = fb_offscreen_buf
+                unsigned char *dst = FB_OUT
                                      + (y + s_phys_yoff) * s_phys_rbytes + col_off;
                 for (x = 0; x < SCREENWIDTH; x += 8)
                     *dst++ = blit8_sbar_thresh(sr + x);
@@ -903,11 +932,12 @@ void I_FinishUpdate(void)
                      menuactive ? "ENTER" : "EXIT", (int)is_direct);
         prev_ma_overlay = menuactive; }
     if (menuactive && menu_overlay_buf) {
-        /* Write to fb_offscreen_buf at physical offsets — correct for both modes. */
+        /* Write menu overlay at physical offsets — FB_OUT is correct for both modes. */
         byte *overlay = menu_overlay_buf;
+        unsigned char *fb = FB_OUT;
         for (y = 0; y < SCREENHEIGHT; y++) {
             const byte    *ovr = overlay + y * SCREENWIDTH;
-            unsigned char *dst = fb_offscreen_buf
+            unsigned char *dst = fb
                                  + (y + s_phys_yoff) * s_phys_rbytes + s_phys_xoff_byte;
             for (x = 0; x < SCREENWIDTH; x += 8) { *dst &= ~blit8_menu(ovr + x); dst++; }
         }

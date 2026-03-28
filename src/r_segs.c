@@ -38,7 +38,28 @@ rcsid[] = "$Id: r_segs.c,v 1.3 1997/01/29 20:10:19 b1 Exp $";
 
 #include "r_local.h"
 #include "r_sky.h"
+#include "w_wad.h"
+#include "z_zone.h"
 
+/* --- Inlined R_GetColumn for r_segs.c hot path --- */
+extern int*		texturewidthmask;
+extern short**		texturecolumnlump;
+extern unsigned short**	texturecolumnofs;
+extern byte**		texturecomposite;
+extern void R_GenerateComposite(int texnum);
+
+static inline byte* R_GetColumn_Fast(int tex, int col)
+{
+    int lump, ofs;
+    col &= texturewidthmask[tex];
+    lump = texturecolumnlump[tex][col];
+    ofs  = texturecolumnofs[tex][col];
+    if (lump > 0)
+	return (byte *)W_CacheLumpNum(lump, PU_CACHE) + ofs;
+    if (!texturecomposite[tex])
+	R_GenerateComposite(tex);
+    return texturecomposite[tex] + ofs;
+}
 
 // OPTIMIZE: closed two sided lines as single sided
 
@@ -221,7 +242,7 @@ R_RenderMaskedSegRange
 
 	    // draw the texture
 	    col = (column_t *)(
-		(byte *)R_GetColumn(texnum,maskedtexturecol[dc_x]) -3);
+		(byte *)R_GetColumn_Fast(texnum,maskedtexturecol[dc_x]) -3);
 
 	    R_DrawMaskedColumn (col);
 	    maskedtexturecol[dc_x] = MAXSHORT;
@@ -235,6 +256,51 @@ R_RenderMaskedSegRange
 
 
 
+
+/* Outlined non-affine texture column computation — the FixedMul + trig lookup
+ * path is ~40 bytes of code that's dead weight in the loop when affinetex=1
+ * (the default). Outlining it keeps the hot affine path tight. */
+static int __attribute__((noinline))
+R_CalcTexColNonAffine(int x)
+{
+    angle_t a = (rw_centerangle + xtoviewangle[x]) >> ANGLETOFINESHIFT;
+    return (rw_offset - FixedMul(finetangent[a], rw_distance)) >> FRACBITS;
+}
+
+/* Outlined visplane marking — lives outside the column loop so its ~100 bytes
+ * of code don't inflate the hot path past the 68030's 256-byte I-cache.
+ * Called only when loop_markceiling or loop_markfloor is true (rare with
+ * solidfloor=1, which is the default config). */
+static void __attribute__((noinline))
+R_MarkVisplanes(int x, int yl, int yh,
+		boolean do_ceil, boolean do_floor)
+{
+    int top, bottom;
+    if (do_ceil)
+    {
+	top = ceilingclip[x]+1;
+	bottom = yl-1;
+	if (bottom >= floorclip[x])
+	    bottom = floorclip[x]-1;
+	if (top <= bottom)
+	{
+	    ceilingplane->top[x] = top;
+	    ceilingplane->bottom[x] = bottom;
+	}
+    }
+    if (do_floor)
+    {
+	top = yh+1;
+	bottom = floorclip[x]-1;
+	if (top <= ceilingclip[x])
+	    top = ceilingclip[x]+1;
+	if (top <= bottom)
+	{
+	    floorplane->top[x] = top;
+	    floorplane->bottom[x] = bottom;
+	}
+    }
+}
 
 //
 // R_RenderSegLoop
@@ -328,104 +394,99 @@ void R_RenderSegLoop (void)
 	return;
     }
 
-    /* Hoist fog_scale>0 test out of inner loop (loop-invariant boolean). */
-    int do_fog = (fog_scale > 0);
+    /* Cache globals as locals so GCC keeps them in registers across the
+     * colfunc() indirect call (which GCC assumes clobbers all globals).
+     * This eliminates ~20 six-byte absolute-address load/store instructions
+     * from the inner loop, shrinking it to fit the 68030's 256-byte I-cache. */
 
-    /* Lighting cache: walllights[index] only changes when the scale crosses a
-     * LIGHTSCALESHIFT (=12) boundary.  For parallel or distant walls many
-     * adjacent columns share the same index — skip the table lookup and
-     * dc_colormap write when unchanged. */
+    /* Loop-invariant: read once, never modified in loop */
+    int l_fog_scale    = fog_scale;
+    int l_do_fog       = (l_fog_scale > 0);
+    int l_segtextured  = segtextured;
+    int l_midtexture   = midtexture;
+    int l_affine       = opt_affine_texcol;
+    fixed_t l_rw_midtexmid = rw_midtexturemid;
+    fixed_t l_scalestep = rw_scalestep;
+    fixed_t l_topstep   = topstep;
+    fixed_t l_botstep   = bottomstep;
+    int l_stopx         = rw_stopx;
+    int l_viewheight    = viewheight;
+    lighttable_t **l_walllights = walllights;
+
+    /* Stepped per column — local copies avoid global store/reload each iter */
+    int x               = rw_x;
+    fixed_t l_scale     = rw_scale;
+    fixed_t l_topfrac   = topfrac;
+    fixed_t l_botfrac   = bottomfrac;
+    fixed_t l_iscale    = rw_iscale;
+    fixed_t l_iscalestep = rw_iscalestep;
+    fixed_t l_texcol    = rw_texcol;
+    fixed_t l_texstep   = rw_texstep;
+
     int last_light_index = -1;
 
-    for ( ; rw_x < rw_stopx ; rw_x++)
+    for ( ; x < l_stopx ; x++)
     {
 	/* Fog: per-column scale check (only when fog is active). */
-	int in_fog = do_fog && (rw_scale < fog_scale);
+	int in_fog = l_do_fog && (l_scale < l_fog_scale);
 
 	// mark floor / ceiling areas
-	yl = (topfrac+HEIGHTUNIT-1)>>HEIGHTBITS;
+	yl = (l_topfrac+HEIGHTUNIT-1)>>HEIGHTBITS;
 
 	// no space above wall?
-	if (yl < ceilingclip[rw_x]+1)
-	    yl = ceilingclip[rw_x]+1;
+	if (yl < ceilingclip[x]+1)
+	    yl = ceilingclip[x]+1;
 
-	/* E: write to visplane top[]/bottom[] only when needed */
-	if (loop_markceiling)
-	{
-	    top = ceilingclip[rw_x]+1;
-	    bottom = yl-1;
+	yh = l_botfrac>>HEIGHTBITS;
 
-	    if (bottom >= floorclip[rw_x])
-		bottom = floorclip[rw_x]-1;
+	if (yh >= floorclip[x])
+	    yh = floorclip[x]-1;
 
-	    if (top <= bottom)
-	    {
-		ceilingplane->top[rw_x] = top;
-		ceilingplane->bottom[rw_x] = bottom;
-	    }
-	}
-
-	yh = bottomfrac>>HEIGHTBITS;
-
-	if (yh >= floorclip[rw_x])
-	    yh = floorclip[rw_x]-1;
-
-	/* E: write to floorplane top[]/bottom[] only when needed */
-	if (loop_markfloor)
-	{
-	    top = yh+1;
-	    bottom = floorclip[rw_x]-1;
-	    if (top <= ceilingclip[rw_x])
-		top = ceilingclip[rw_x]+1;
-	    if (top <= bottom)
-	    {
-		floorplane->top[rw_x] = top;
-		floorplane->bottom[rw_x] = bottom;
-	    }
-	}
+	/* Visplane marking — outlined to keep hot loop under 256 bytes */
+	if (loop_markceiling | loop_markfloor)
+	    R_MarkVisplanes(x, yl, yh, loop_markceiling, loop_markfloor);
 
 	// texturecolumn and lighting are independent of wall tiers
-	if (segtextured)
+	if (l_segtextured)
 	{
 	    /* Affine stepping (opt_affine_texcol) or original per-column FixedMul */
-	    if (opt_affine_texcol) {
-		texturecolumn = rw_texcol >> FRACBITS;
-		rw_texcol += rw_texstep;
+	    if (l_affine) {
+		texturecolumn = l_texcol >> FRACBITS;
+		l_texcol += l_texstep;
 	    } else {
-		angle_t a = (rw_centerangle + xtoviewangle[rw_x]) >> ANGLETOFINESHIFT;
-		texturecolumn = (rw_offset - FixedMul(finetangent[a], rw_distance)) >> FRACBITS;
+		texturecolumn = R_CalcTexColNonAffine(x);
 	    }
 	    // calculate lighting — skip walllights lookup when index unchanged
-	    index = rw_scale>>LIGHTSCALESHIFT;
+	    index = l_scale>>LIGHTSCALESHIFT;
 
 	    if (index >=  MAXLIGHTSCALE )
 		index = MAXLIGHTSCALE-1;
 
 	    if (index != last_light_index) {
 		last_light_index = index;
-		dc_colormap = walllights[index];
+		dc_colormap = l_walllights[index];
 	    }
-	    dc_x = rw_x;
+	    dc_x = x;
 	    /* Linear interpolation replaces per-column 32-bit divide */
-	    dc_iscale = rw_iscale;
-	    rw_iscale += rw_iscalestep;
+	    dc_iscale = l_iscale;
+	    l_iscale += l_iscalestep;
 	}
 
 	// draw the wall tiers
-	if (midtexture)
+	if (l_midtexture)
 	{
 	    // single sided line
 	    dc_yl = yl;
 	    dc_yh = yh;
-	    dc_texturemid = rw_midtexturemid;
+	    dc_texturemid = l_rw_midtexmid;
 	    /* C: LOD; fog: skip draw if too thin or beyond fog distance */
 	    if (!in_fog && dc_yh >= dc_yl + lod_min_height)
 	    {
-		dc_source = R_GetColumn(midtexture,texturecolumn);
+		dc_source = R_GetColumn_Fast(l_midtexture,texturecolumn);
 		colfunc();
 	    }
-	    ceilingclip[rw_x] = viewheight;
-	    floorclip[rw_x] = -1;
+	    ceilingclip[x] = l_viewheight;
+	    floorclip[x] = -1;
 	}
 	else
 	{
@@ -436,8 +497,8 @@ void R_RenderSegLoop (void)
 		mid = pixhigh>>HEIGHTBITS;
 		pixhigh += pixhighstep;
 
-		if (mid >= floorclip[rw_x])
-		    mid = floorclip[rw_x]-1;
+		if (mid >= floorclip[x])
+		    mid = floorclip[x]-1;
 
 		if (mid >= yl)
 		{
@@ -447,19 +508,19 @@ void R_RenderSegLoop (void)
 		    /* C: LOD; fog */
 		    if (!in_fog && mid >= yl + lod_min_height)
 		    {
-			dc_source = R_GetColumn(toptexture,texturecolumn);
+			dc_source = R_GetColumn_Fast(toptexture,texturecolumn);
 			colfunc();
 		    }
-		    ceilingclip[rw_x] = mid;
+		    ceilingclip[x] = mid;
 		}
 		else
-		    ceilingclip[rw_x] = yl-1;
+		    ceilingclip[x] = yl-1;
 	    }
 	    else
 	    {
 		// no top wall — BSP clip must still update
 		if (markceiling)
-		    ceilingclip[rw_x] = yl-1;
+		    ceilingclip[x] = yl-1;
 	    }
 
 	    if (bottomtexture)
@@ -469,8 +530,8 @@ void R_RenderSegLoop (void)
 		pixlow += pixlowstep;
 
 		// no space above wall?
-		if (mid <= ceilingclip[rw_x])
-		    mid = ceilingclip[rw_x]+1;
+		if (mid <= ceilingclip[x])
+		    mid = ceilingclip[x]+1;
 
 		if (mid <= yh)
 		{
@@ -480,34 +541,42 @@ void R_RenderSegLoop (void)
 		    /* C: LOD; fog */
 		    if (!in_fog && yh >= mid + lod_min_height)
 		    {
-			dc_source = R_GetColumn(bottomtexture,
+			dc_source = R_GetColumn_Fast(bottomtexture,
 						texturecolumn);
 			colfunc();
 		    }
-		    floorclip[rw_x] = mid;
+		    floorclip[x] = mid;
 		}
 		else
-		    floorclip[rw_x] = yh+1;
+		    floorclip[x] = yh+1;
 	    }
 	    else
 	    {
 		// no bottom wall — BSP clip must still update
 		if (markfloor)
-		    floorclip[rw_x] = yh+1;
+		    floorclip[x] = yh+1;
 	    }
 
 	    if (maskedtexture)
 	    {
 		// save texturecol
 		//  for backdrawing of masked mid texture
-		maskedtexturecol[rw_x] = texturecolumn;
+		maskedtexturecol[x] = texturecolumn;
 	    }
 	}
 
-	rw_scale += rw_scalestep;
-	topfrac += topstep;
-	bottomfrac += bottomstep;
+	l_scale += l_scalestep;
+	l_topfrac += l_topstep;
+	l_botfrac += l_botstep;
     }
+
+    /* Write back to globals — callers may read final state */
+    rw_x = x;
+    rw_scale = l_scale;
+    topfrac = l_topfrac;
+    bottomfrac = l_botfrac;
+    rw_iscale = l_iscale;
+    rw_texcol = l_texcol;
 }
 
 
@@ -523,9 +592,6 @@ R_StoreWallRange
 ( int	start,
   int	stop )
 {
-    fixed_t		hyp;
-    fixed_t		sineval;
-    angle_t		offsetangle;
     fixed_t		vtop;
     int			lightnum;
 
@@ -550,7 +616,6 @@ R_StoreWallRange
 
     // Phase 2C: perpendicular distance via dot product (2 FixedMul)
     // replaces R_PointToDist (2 FixedDiv) + 1 FixedMul.
-    // hyp (actual distance to v1) deferred to textured-seg path only.
     {
 	fixed_t dx = curline->v1->x - viewx;
 	fixed_t dy = curline->v1->y - viewy;
@@ -559,7 +624,6 @@ R_StoreWallRange
 			  + FixedMul(dy, finesine[na]));
 	if (rw_distance < 1) rw_distance = 1;
     }
-    hyp = 0; /* computed lazily below if segtextured */
 		
 	
     ds_p->x1 = rw_x = start;
@@ -815,21 +879,16 @@ R_StoreWallRange
 
     if (segtextured)
     {
-	hyp = R_PointToDist (curline->v1->x, curline->v1->y);
-
-	offsetangle = rw_normalangle-rw_angle1;
-
-	if (offsetangle > ANG180)
-	    offsetangle = -offsetangle;
-
-	if (offsetangle > ANG90)
-	    offsetangle = ANG90;
-
-	sineval = finesine[offsetangle >>ANGLETOFINESHIFT];
-	rw_offset = FixedMul (hyp, sineval);
-
-	if (rw_normalangle-rw_angle1 < ANG180)
-	    rw_offset = -rw_offset;
+	/* Direct dot-product for rw_offset: project (view - v1) onto wall direction.
+	 * Replaces R_PointToDist (2× FixedDiv ~280 cycles) + FixedMul (~44 cycles)
+	 * with 2× FixedMul (~88 cycles). Sign is implicit in the dot product. */
+	{
+	    fixed_t dx = viewx - curline->v1->x;
+	    fixed_t dy = viewy - curline->v1->y;
+	    unsigned wa = curline->angle >> ANGLETOFINESHIFT;
+	    rw_offset = FixedMul(dx, finecosine[wa])
+		      + FixedMul(dy, finesine[wa]);
+	}
 
 	rw_offset += sidedef->textureoffset + curline->offset;
 	rw_centerangle = ANG90 + viewangle - rw_normalangle;
