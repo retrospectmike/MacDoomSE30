@@ -355,37 +355,44 @@ void R_DrawMaskedColumn (column_t* column)
     int		topscreen;
     int 	bottomscreen;
     fixed_t	basetexturemid;
-	
+
     basetexturemid = dc_texturemid;
-	
-    for ( ; column->topdelta != 0xff ; ) 
+
+    /* Cache globals as locals — GCC reloads all 5 after every colfunc()
+     * indirect call due to aliasing.  All are loop-invariant. */
+    fixed_t l_spryscale    = spryscale;
+    fixed_t l_sprtopscreen = sprtopscreen;
+    int     l_dc_x         = dc_x;
+    short  *l_mfloorclip   = mfloorclip;
+    short  *l_mceilingclip = mceilingclip;
+
+    for ( ; column->topdelta != 0xff ; )
     {
 	// calculate unclipped screen coordinates
 	//  for post
-	topscreen = sprtopscreen + spryscale*column->topdelta;
-	bottomscreen = topscreen + spryscale*column->length;
+	topscreen = l_sprtopscreen + l_spryscale*column->topdelta;
+	bottomscreen = topscreen + l_spryscale*column->length;
 
 	dc_yl = (topscreen+FRACUNIT-1)>>FRACBITS;
 	dc_yh = (bottomscreen-1)>>FRACBITS;
-		
-	if (dc_yh >= mfloorclip[dc_x])
-	    dc_yh = mfloorclip[dc_x]-1;
-	if (dc_yl <= mceilingclip[dc_x])
-	    dc_yl = mceilingclip[dc_x]+1;
+
+	if (dc_yh >= l_mfloorclip[l_dc_x])
+	    dc_yh = l_mfloorclip[l_dc_x]-1;
+	if (dc_yl <= l_mceilingclip[l_dc_x])
+	    dc_yl = l_mceilingclip[l_dc_x]+1;
 
 	if (dc_yl <= dc_yh)
 	{
 	    dc_source = (byte *)column + 3;
 	    dc_texturemid = basetexturemid - (column->topdelta<<FRACBITS);
-	    // dc_source = (byte *)column + 3 - column->topdelta;
 
 	    // Drawn by either R_DrawColumn
 	    //  or (SHADOW) R_DrawFuzzColumn.
-	    colfunc ();	
+	    colfunc ();
 	}
 	column = (column_t *)(  (byte *)column + column->length + 4);
     }
-	
+
     dc_texturemid = basetexturemid;
 }
 
@@ -429,16 +436,20 @@ R_DrawVisSprite
     spryscale = vis->scale;
     sprtopscreen = centeryfrac - FixedMul(dc_texturemid,spryscale);
 	
-    for (dc_x=vis->x1 ; dc_x<=vis->x2 ; dc_x++, frac += vis->xiscale)
     {
-	texturecolumn = frac>>FRACBITS;
+	int l_dc_x;
+	for (l_dc_x=vis->x1 ; l_dc_x<=vis->x2 ; l_dc_x++, frac += vis->xiscale)
+	{
+	    dc_x = l_dc_x;  /* write to global — R_DrawMaskedColumn reads it */
+	    texturecolumn = frac>>FRACBITS;
 #ifdef RANGECHECK
-	if (texturecolumn < 0 || texturecolumn >= SHORT(patch->width))
-	    I_Error ("R_DrawSpriteRange: bad texturecolumn");
+	    if (texturecolumn < 0 || texturecolumn >= SHORT(patch->width))
+		I_Error ("R_DrawSpriteRange: bad texturecolumn");
 #endif
-	column = (column_t *) ((byte *)patch +
-			       LONG(patch->columnofs[texturecolumn]));
-	R_DrawMaskedColumn (column);
+	    column = (column_t *) ((byte *)patch +
+				   LONG(patch->columnofs[texturecolumn]));
+	    R_DrawMaskedColumn (column);
+	}
     }
 
     colfunc = basecolfunc;

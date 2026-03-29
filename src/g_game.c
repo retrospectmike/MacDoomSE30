@@ -1587,22 +1587,22 @@ void G_DoPlayDemo (void)
     int             i, episode, map; 
 	 
     gameaction = ga_nothing; 
-    demobuffer = demo_p = W_CacheLumpName (defdemoname, PU_STATIC); 
-    if ( *demo_p++ != VERSION)
-    {
-      fprintf( stderr, "Demo is from a different game version!\n");
-      gameaction = ga_nothing;
-      return;
-    }
-    
-    skill = *demo_p++; 
-    episode = *demo_p++; 
-    map = *demo_p++; 
+    demobuffer = demo_p = W_CacheLumpName (defdemoname, PU_STATIC);
+    /* Skip version byte — shareware WAD demos may be v1.9 (109) while
+     * our VERSION is 110.  The tic format is identical. */
+    { int verbyte = *demo_p; doom_log("G_DoPlayDemo: ver=%d (ours=%d)\n", verbyte, VERSION); }
+    demo_p++;
+
+    skill = *demo_p++;
+    episode = *demo_p++;
+    map = *demo_p++;
     deathmatch = *demo_p++;
     respawnparm = *demo_p++;
     fastparm = *demo_p++;
     nomonsters = *demo_p++;
     consoleplayer = *demo_p++;
+    doom_log("G_DoPlayDemo: skill=%d ep=%d map=%d dm=%d console=%d\n",
+             skill, episode, map, deathmatch, consoleplayer);
 	
     for (i=0 ; i<MAXPLAYERS ; i++) 
 	playeringame[i] = *demo_p++; 

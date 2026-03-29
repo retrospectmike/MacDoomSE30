@@ -138,6 +138,8 @@ void UpdatePictureItem(DialogPtr dialog, short itemNum, short pictID)
     }
 }
 
+static int   s_timedemo = 0;  /* benchmark checkbox — one-shot, not saved */
+
 /* ---- Settings dialog helpers -------------------------------------------- */
 static void dlg_disable_check(DialogPtr dlg, short item)
 {
@@ -231,6 +233,7 @@ static void populate_settings(DialogPtr dlg)
     dlg_set_popup(dlg, 29, solidfloor_gray + 1);  /* Shade: 1=White..5=Black */
     dlg_set_popup(dlg, 30, detailLevel + 1);      /* Detail: 1=High, 2=Low, 3=Quad */
     dlg_set_check(dlg, 32, opt_sound);
+    dlg_set_check(dlg, 33, s_timedemo);
 }
 
 static void read_settings(DialogPtr dlg)
@@ -253,6 +256,7 @@ static void read_settings(DialogPtr dlg)
     solidfloor_gray = dlg_get_popup(dlg, 29) - 1;  /* 1-based → 0-based */
     detailLevel = dlg_get_popup(dlg, 30) - 1;
     opt_sound = dlg_get_check(dlg, 32);
+    s_timedemo = dlg_get_check(dlg, 33);
 }
 
 static void ShowSettingsDialog(void)
@@ -285,7 +289,7 @@ static void ShowSettingsDialog(void)
                 apply_factory_defaults();
                 populate_settings(dlg);
                 break;
-            case 15: case 16: case 17: case 18: case 19: case 32:  /* checkboxes */
+            case 15: case 16: case 17: case 18: case 19: case 32: case 33:  /* checkboxes */
                 dlg_toggle_check(dlg, itemHit);
                 break;
         }
@@ -336,7 +340,7 @@ static pascal Boolean SplashFilterProc(DialogPtr dlg, EventRecord *event, short 
     return false;
 }
 
-static char *mac_argv[] = { "DoomSE30" };
+static char *mac_argv[] = { "DoomSE30", "-playdemo", "e1m1ben" };
 static WindowPtr bg_window = nil;  /* fullscreen black background window */
 
 void I_NoWadAlert(void)
@@ -504,8 +508,8 @@ int main(void)
     }
 
     /* Set up Doom's command-line argument globals */
-    myargc = 1;
     myargv = mac_argv;
+    myargc = s_timedemo ? 3 : 1;
 
     /* Doom's real entry point — setjmp here so I_Quit()'s longjmp lands back */
     if (setjmp(doom_quit_jmp) == 0)

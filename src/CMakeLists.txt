@@ -120,6 +120,9 @@ set_source_files_properties(d_main.c PROPERTIES
 # 68030 has a 256-byte I-cache; unrolling beyond that causes thrashing.
 # r_segs.c EXCLUDED: R_RenderSegLoop was 384-542 bytes unrolled.
 # r_draw.c EXCLUDED: R_DrawColumnQuadLow_Mono was 424 bytes unrolled (already 2x manual).
+# r_bsp.c KEPT: tested without unrolling 2026-03-28 — neutral result. The unrolled
+# Duff's device memmove in R_ClipSolidWallSegment may be a net positive despite
+# R_Subsector being 1284 bytes (seg loop body itself is small, calls are indirect).
 set_source_files_properties(r_bsp.c PROPERTIES
     COMPILE_FLAGS "-funroll-loops"
 )

@@ -413,6 +413,21 @@ void R_RenderSegLoop (void)
     int l_viewheight    = viewheight;
     lighttable_t **l_walllights = walllights;
 
+    /* Two-sided wall path: loop-invariant globals used when midtexture==0.
+     * Same aliasing issue — GCC reloads these after every colfunc() call. */
+    int l_toptexture       = toptexture;
+    int l_bottomtexture    = bottomtexture;
+    boolean l_maskedtexture = maskedtexture;
+    short *l_maskedtexcol  = maskedtexturecol;
+    fixed_t l_rw_toptexmid = rw_toptexturemid;
+    fixed_t l_rw_bottexmid = rw_bottomtexturemid;
+    boolean l_markceiling  = markceiling;
+    boolean l_markfloor    = markfloor;
+    fixed_t l_pixhighstep  = pixhighstep;
+    fixed_t l_pixlowstep   = pixlowstep;
+    fixed_t l_pixhigh      = pixhigh;
+    fixed_t l_pixlow       = pixlow;
+
     /* Stepped per column — local copies avoid global store/reload each iter */
     int x               = rw_x;
     fixed_t l_scale     = rw_scale;
@@ -491,11 +506,11 @@ void R_RenderSegLoop (void)
 	else
 	{
 	    // two sided line
-	    if (toptexture)
+	    if (l_toptexture)
 	    {
 		// top wall
-		mid = pixhigh>>HEIGHTBITS;
-		pixhigh += pixhighstep;
+		mid = l_pixhigh>>HEIGHTBITS;
+		l_pixhigh += l_pixhighstep;
 
 		if (mid >= floorclip[x])
 		    mid = floorclip[x]-1;
@@ -504,11 +519,11 @@ void R_RenderSegLoop (void)
 		{
 		    dc_yl = yl;
 		    dc_yh = mid;
-		    dc_texturemid = rw_toptexturemid;
+		    dc_texturemid = l_rw_toptexmid;
 		    /* C: LOD; fog */
 		    if (!in_fog && mid >= yl + lod_min_height)
 		    {
-			dc_source = R_GetColumn_Fast(toptexture,texturecolumn);
+			dc_source = R_GetColumn_Fast(l_toptexture,texturecolumn);
 			colfunc();
 		    }
 		    ceilingclip[x] = mid;
@@ -519,15 +534,15 @@ void R_RenderSegLoop (void)
 	    else
 	    {
 		// no top wall — BSP clip must still update
-		if (markceiling)
+		if (l_markceiling)
 		    ceilingclip[x] = yl-1;
 	    }
 
-	    if (bottomtexture)
+	    if (l_bottomtexture)
 	    {
 		// bottom wall
-		mid = (pixlow+HEIGHTUNIT-1)>>HEIGHTBITS;
-		pixlow += pixlowstep;
+		mid = (l_pixlow+HEIGHTUNIT-1)>>HEIGHTBITS;
+		l_pixlow += l_pixlowstep;
 
 		// no space above wall?
 		if (mid <= ceilingclip[x])
@@ -537,11 +552,11 @@ void R_RenderSegLoop (void)
 		{
 		    dc_yl = mid;
 		    dc_yh = yh;
-		    dc_texturemid = rw_bottomtexturemid;
+		    dc_texturemid = l_rw_bottexmid;
 		    /* C: LOD; fog */
 		    if (!in_fog && yh >= mid + lod_min_height)
 		    {
-			dc_source = R_GetColumn_Fast(bottomtexture,
+			dc_source = R_GetColumn_Fast(l_bottomtexture,
 						texturecolumn);
 			colfunc();
 		    }
@@ -553,15 +568,15 @@ void R_RenderSegLoop (void)
 	    else
 	    {
 		// no bottom wall — BSP clip must still update
-		if (markfloor)
+		if (l_markfloor)
 		    floorclip[x] = yh+1;
 	    }
 
-	    if (maskedtexture)
+	    if (l_maskedtexture)
 	    {
 		// save texturecol
 		//  for backdrawing of masked mid texture
-		maskedtexturecol[x] = texturecolumn;
+		l_maskedtexcol[x] = texturecolumn;
 	    }
 	}
 
