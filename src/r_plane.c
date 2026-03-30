@@ -404,6 +404,15 @@ void R_DrawPlanes (void)
 	    //  by INVUL inverse mapping.
 	    dc_colormap = colormaps;
 	    dc_texturemid = skytexturemid;
+
+	    /* Cache loop-invariant globals — GCC reloads all of these
+	     * after every colfunc() indirect call due to aliasing. */
+	    {
+	    angle_t  l_viewangle  = viewangle;
+	    angle_t *l_xtoviewangle = xtoviewangle;
+	    int      l_skytexture = skytexture;
+	    void   (*l_colfunc)(void) = colfunc;
+
 	    for (x=pl->minx ; x <= pl->maxx ; x++)
 	    {
 		dc_yl = pl->top[x];
@@ -411,11 +420,12 @@ void R_DrawPlanes (void)
 
 		if (dc_yl <= dc_yh)
 		{
-		    angle = (viewangle + xtoviewangle[x])>>ANGLETOSKYSHIFT;
+		    angle = (l_viewangle + l_xtoviewangle[x])>>ANGLETOSKYSHIFT;
 		    dc_x = x;
-		    dc_source = R_GetColumn(skytexture, angle);
-		    colfunc ();
+		    dc_source = R_GetColumn(l_skytexture, angle);
+		    l_colfunc ();
 		}
+	    }
 	    }
 	    continue;
 	}

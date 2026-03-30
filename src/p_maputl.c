@@ -487,20 +487,27 @@ P_BlockLinesIterator
     }
     
     offset = y*bmapwidth+x;
-	
+
     offset = *(blockmap+offset);
+
+    /* Cache globals as locals — GCC reloads lines and validcount
+     * after every func() indirect call due to aliasing. */
+    {
+    line_t *l_lines       = lines;
+    int     l_validcount  = validcount;
 
     for ( list = blockmaplump+offset ; *list != -1 ; list++)
     {
-	ld = &lines[*list];
+	ld = &l_lines[*list];
 
-	if (ld->validcount == validcount)
+	if (ld->validcount == l_validcount)
 	    continue; 	// line has already been checked
 
-	ld->validcount = validcount;
-		
+	ld->validcount = l_validcount;
+
 	if ( !func(ld) )
 	    return false;
+    }
     }
     return true;	// everything was checked
 }

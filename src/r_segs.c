@@ -219,37 +219,50 @@ R_RenderMaskedSegRange
 			
     if (fixedcolormap)
 	dc_colormap = fixedcolormap;
-    
+
+    /* Cache loop-invariant globals as locals — GCC reloads all of these
+     * after every R_DrawMaskedColumn() call due to aliasing. */
+    {
+    short  *l_maskedtexcol = maskedtexturecol;
+    fixed_t l_rw_scalestep = rw_scalestep;
+    lighttable_t **l_walllights = walllights;
+    lighttable_t *l_fixedcolormap = fixedcolormap;
+    fixed_t l_centeryfrac  = centeryfrac;
+    fixed_t l_spryscale    = spryscale;
+    int     l_dc_x;
+
     // draw the columns
-    for (dc_x = x1 ; dc_x <= x2 ; dc_x++)
+    for (l_dc_x = x1 ; l_dc_x <= x2 ; l_dc_x++)
     {
 	// calculate lighting
-	if (maskedtexturecol[dc_x] != MAXSHORT)
+	if (l_maskedtexcol[l_dc_x] != MAXSHORT)
 	{
-	    if (!fixedcolormap)
+	    if (!l_fixedcolormap)
 	    {
-		index = spryscale>>LIGHTSCALESHIFT;
+		index = l_spryscale>>LIGHTSCALESHIFT;
 
 		if (index >=  MAXLIGHTSCALE )
 		    index = MAXLIGHTSCALE-1;
 
-		dc_colormap = walllights[index];
+		dc_colormap = l_walllights[index];
 	    }
 
-	    sprtopscreen = centeryfrac - FixedMul(dc_texturemid, spryscale);
+	    dc_x = l_dc_x;
+	    sprtopscreen = l_centeryfrac - FixedMul(dc_texturemid, l_spryscale);
 	    /* Linear interpolation replaces per-column 32-bit divide */
 	    dc_iscale = mpr_iscale;
 
 	    // draw the texture
 	    col = (column_t *)(
-		(byte *)R_GetColumn_Fast(texnum,maskedtexturecol[dc_x]) -3);
+		(byte *)R_GetColumn_Fast(texnum,l_maskedtexcol[l_dc_x]) -3);
 
 	    R_DrawMaskedColumn (col);
-	    maskedtexturecol[dc_x] = MAXSHORT;
+	    l_maskedtexcol[l_dc_x] = MAXSHORT;
 	}
 	mpr_iscale += mpr_iscalestep;
-	spryscale += rw_scalestep;
+	l_spryscale += l_rw_scalestep;
     }
+    } /* end local cache block */
     } /* end mpr_iscale block */
 
 }

@@ -158,46 +158,63 @@ boolean P_CrossSubsector (int num)
 #endif
 
     sub = &subsectors[num];
-    
+
     // check lines
     count = sub->numlines;
     seg = &segs[sub->firstline];
+
+    /* Cache globals as locals — GCC reloads all of these after every
+     * P_DivlineSide() and P_InterceptVector2() call due to aliasing.
+     * strace, t2x, t2y, sightzstart, validcount are loop-invariant.
+     * topslope, bottomslope are modified — written back on exit. */
+    {
+    divline_t l_strace      = strace;
+    fixed_t   l_t2x         = t2x;
+    fixed_t   l_t2y         = t2y;
+    fixed_t   l_sightzstart = sightzstart;
+    int       l_validcount  = validcount;
+    fixed_t   l_topslope    = topslope;
+    fixed_t   l_bottomslope = bottomslope;
 
     for ( ; count ; seg++, count--)
     {
 	line = seg->linedef;
 
 	// allready checked other side?
-	if (line->validcount == validcount)
+	if (line->validcount == l_validcount)
 	    continue;
-	
-	line->validcount = validcount;
-		
+
+	line->validcount = l_validcount;
+
 	v1 = line->v1;
 	v2 = line->v2;
-	s1 = P_DivlineSide (v1->x,v1->y, &strace);
-	s2 = P_DivlineSide (v2->x, v2->y, &strace);
+	s1 = P_DivlineSide (v1->x,v1->y, &l_strace);
+	s2 = P_DivlineSide (v2->x, v2->y, &l_strace);
 
 	// line isn't crossed?
 	if (s1 == s2)
 	    continue;
-	
+
 	divl.x = v1->x;
 	divl.y = v1->y;
 	divl.dx = v2->x - v1->x;
 	divl.dy = v2->y - v1->y;
-	s1 = P_DivlineSide (strace.x, strace.y, &divl);
-	s2 = P_DivlineSide (t2x, t2y, &divl);
+	s1 = P_DivlineSide (l_strace.x, l_strace.y, &divl);
+	s2 = P_DivlineSide (l_t2x, l_t2y, &divl);
 
 	// line isn't crossed?
 	if (s1 == s2)
-	    continue;	
+	    continue;
 
 	// stop because it is not two sided anyway
 	// might do this after updating validcount?
 	if ( !(line->flags & ML_TWOSIDED) )
+	{
+	    topslope = l_topslope;
+	    bottomslope = l_bottomslope;
 	    return false;
-	
+	}
+
 	// crosses a two sided line
 	front = seg->frontsector;
 	back = seg->backsector;
@@ -205,7 +222,7 @@ boolean P_CrossSubsector (int num)
 	// no wall to block sight with?
 	if (front->floorheight == back->floorheight
 	    && front->ceilingheight == back->ceilingheight)
-	    continue;	
+	    continue;
 
 	// possible occluder
 	// because of ceiling height differences
@@ -219,29 +236,40 @@ boolean P_CrossSubsector (int num)
 	    openbottom = front->floorheight;
 	else
 	    openbottom = back->floorheight;
-		
+
 	// quick test for totally closed doors
-	if (openbottom >= opentop)	
+	if (openbottom >= opentop)
+	{
+	    topslope = l_topslope;
+	    bottomslope = l_bottomslope;
 	    return false;		// stop
-	
-	frac = P_InterceptVector2 (&strace, &divl);
-		
+	}
+
+	frac = P_InterceptVector2 (&l_strace, &divl);
+
 	if (front->floorheight != back->floorheight)
 	{
-	    slope = FixedDiv (openbottom - sightzstart , frac);
-	    if (slope > bottomslope)
-		bottomslope = slope;
+	    slope = FixedDiv (openbottom - l_sightzstart , frac);
+	    if (slope > l_bottomslope)
+		l_bottomslope = slope;
 	}
-		
+
 	if (front->ceilingheight != back->ceilingheight)
 	{
-	    slope = FixedDiv (opentop - sightzstart , frac);
-	    if (slope < topslope)
-		topslope = slope;
+	    slope = FixedDiv (opentop - l_sightzstart , frac);
+	    if (slope < l_topslope)
+		l_topslope = slope;
 	}
-		
-	if (topslope <= bottomslope)
-	    return false;		// stop				
+
+	if (l_topslope <= l_bottomslope)
+	{
+	    topslope = l_topslope;
+	    bottomslope = l_bottomslope;
+	    return false;		// stop
+	}
+    }
+    topslope = l_topslope;
+    bottomslope = l_bottomslope;
     }
     // passed the subsector ok
     return true;		

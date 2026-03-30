@@ -340,7 +340,7 @@ static pascal Boolean SplashFilterProc(DialogPtr dlg, EventRecord *event, short 
     return false;
 }
 
-static char *mac_argv[] = { "DoomSE30", "-playdemo", "e1m1ben" };
+static char *mac_argv[] = { "DoomSE30", "-playdemo", "pl20ben" };
 static WindowPtr bg_window = nil;  /* fullscreen black background window */
 
 void I_NoWadAlert(void)

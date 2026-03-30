@@ -19,6 +19,7 @@
 - [ ] **Sky fog** (nice-to-have) — sky should be immune to fog; currently shows solidfloor fill at fog distance. Two approaches tried and reverted. Root cause unknown. Could slip to post-1.0.
 - [ ] **Keep optimizing** for more FPS esp to bring the low end up.  See docs OPTIMIZATION_IDEAS.md and PERFORMANCE_HISTORY.md for extensive records.
 - [ ] **Fix sky clipping** rendering bugs when OPTION "solid fill ceiling/floor" texture rendering is set to OFF
+- [ ] **Check transparent wall texture rendering bug** in E1M1 — may be drawing incorrectly
 
 ### Options GUI
 - [ ] **Expose tunable options in-game** — monster_throttle_dist, fog_scale, solidfloor_gray, halfline, etc. Currently only settable via doom.cfg or hotkeys.
