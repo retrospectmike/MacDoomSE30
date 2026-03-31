@@ -8,7 +8,7 @@ This is a port of [linuxdoom](https://github.com/id-Software/DOOM) to MacOS Syst
 ## System Requirements
 - Macintosh SE/30 (68030 processor)
 - System 7.5.x with [MODE-32](https://en.wikipedia.org/wiki/MODE32) to access all your RAM
-- 64MB of RAM
+- 16 MB of RAM
   - Doesn't currently need it all and may adjust this later
 - Enough storage to fit the game and your .wad file(s)
   - I recommend [BlueSCSI](https://github.com/BlueSCSI/BlueSCSI-v2/)
@@ -53,6 +53,9 @@ The main ones you'll notice are:
 This program is care-ware. If you enjoy it, do something nice to someone today!
 
 # Release Notes
+• 1.0bX
+- Support for WAD files (PWADs)
+- Optimizations targeting SE/30 68030 processor cache and registers
 • 1.0b4
 - Sound functionality enabled
 • 1.0b3
