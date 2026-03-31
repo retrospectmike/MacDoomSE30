@@ -46,9 +46,14 @@ rcsid[] = "$Id: p_enemy.c,v 1.5 1997/02/03 22:45:11 b1 Exp $";
 #include "sounds.h"
 
 extern int monster_throttle_dist;  /* d_main.c — map-unit P_Move skip threshold */
+extern int monster_sight_dist;    /* d_main.c — skip P_CheckSight beyond this range */
 
-
-
+extern long I_GetMacTick(void);
+/* A_Chase sub-profiling */
+long prof_chase_move   = 0;   /* P_Move + P_NewChaseDir */
+long prof_chase_attack = 0;   /* P_CheckMeleeRange + P_CheckMissileRange */
+long prof_chase_move_n   = 0;
+long prof_chase_attack_n = 0;
 
 typedef enum
 {
@@ -531,9 +536,17 @@ P_LookForPlayers
 	if (player->health <= 0)
 	    continue;		// dead
 
+	if (monster_sight_dist > 0)
+	{
+	    dist = P_AproxDistance(player->mo->x - actor->x,
+				  player->mo->y - actor->y);
+	    if (dist > (fixed_t)monster_sight_dist << FRACBITS)
+		continue;	// too far — skip expensive sight trace
+	}
+
 	if (!P_CheckSight (actor, player->mo))
 	    continue;		// out of sight
-			
+
 	if (!allaround)
 	{
 	    an = R_PointToAngle2 (actor->x,
@@ -724,31 +737,46 @@ void A_Chase (mobj_t*	actor)
     }
     
     // check for melee attack
-    if (actor->info->meleestate
-	&& P_CheckMeleeRange (actor))
     {
-	if (actor->info->attacksound)
-	    S_StartSound (actor, actor->info->attacksound);
-
-	P_SetMobjState (actor, actor->info->meleestate);
-	return;
-    }
-    
-    // check for missile attack
-    if (actor->info->missilestate)
-    {
-	if (gameskill < sk_nightmare
-	    && !fastparm && actor->movecount)
+	long _ta = I_GetMacTick();
+	if (actor->info->meleestate
+	    && P_CheckMeleeRange (actor))
 	{
-	    goto nomissile;
+	    prof_chase_attack += I_GetMacTick() - _ta;
+	    prof_chase_attack_n++;
+	    if (actor->info->attacksound)
+		S_StartSound (actor, actor->info->attacksound);
+
+	    P_SetMobjState (actor, actor->info->meleestate);
+	    return;
 	}
-	
-	if (!P_CheckMissileRange (actor))
-	    goto nomissile;
-	
-	P_SetMobjState (actor, actor->info->missilestate);
-	actor->flags |= MF_JUSTATTACKED;
-	return;
+
+	// check for missile attack
+	if (actor->info->missilestate)
+	{
+	    if (gameskill < sk_nightmare
+		&& !fastparm && actor->movecount)
+	    {
+		prof_chase_attack += I_GetMacTick() - _ta;
+		prof_chase_attack_n++;
+		goto nomissile;
+	    }
+
+	    if (!P_CheckMissileRange (actor))
+	    {
+		prof_chase_attack += I_GetMacTick() - _ta;
+		prof_chase_attack_n++;
+		goto nomissile;
+	    }
+
+	    prof_chase_attack += I_GetMacTick() - _ta;
+	    prof_chase_attack_n++;
+	    P_SetMobjState (actor, actor->info->missilestate);
+	    actor->flags |= MF_JUSTATTACKED;
+	    return;
+	}
+	prof_chase_attack += I_GetMacTick() - _ta;
+	prof_chase_attack_n++;
     }
 
     // ?
@@ -767,6 +795,7 @@ void A_Chase (mobj_t*	actor)
     // P_Move→P_TryMove does blockmap collision, expensive on dense maps.
     // monster_throttle_dist (map units, doom.cfg) controls the threshold.
     {
+	long _tm = I_GetMacTick();
 	int do_move = 1;
 	if (monster_throttle_dist > 0 && (gametic & 1)) {
 	    fixed_t dx = actor->x - players[consoleplayer].mo->x;
@@ -777,6 +806,8 @@ void A_Chase (mobj_t*	actor)
 	}
 	if (do_move && (--actor->movecount<0 || !P_Move (actor)))
 	    P_NewChaseDir (actor);
+	prof_chase_move += I_GetMacTick() - _tm;
+	prof_chase_move_n++;
     }
     
     // make active sound

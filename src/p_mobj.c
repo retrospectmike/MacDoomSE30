@@ -33,6 +33,23 @@ rcsid[] = "$Id: p_mobj.c,v 1.5 1997/02/03 22:45:12 b1 Exp $";
 #include "sounds.h"
 
 #include "st_stuff.h"
+
+extern long I_GetMacTick(void);
+/* Sub-profiling for P_MobjThinker breakdown */
+long prof_mobj_xymove = 0;
+long prof_mobj_zmove  = 0;
+long prof_mobj_state  = 0;
+long prof_mobj_count  = 0;
+
+/* Action-function sub-profiling inside P_SetMobjState */
+extern void A_Chase(mobj_t*);
+extern void A_Look(mobj_t*);
+long prof_act_chase = 0;
+long prof_act_look  = 0;
+long prof_act_other = 0;
+long prof_act_chase_n = 0;
+long prof_act_look_n  = 0;
+long prof_act_other_n = 0;
 #include "hu_stuff.h"
 
 #include "s_sound.h"
@@ -74,8 +91,18 @@ P_SetMobjState
 
 	// Modified handling.
 	// Call action functions when the state is set
-	if (st->action.acp1)		
-	    st->action.acp1(mobj);	
+	if (st->action.acp1)
+	{
+	    long _ta = I_GetMacTick();
+	    st->action.acp1(mobj);
+	    _ta = I_GetMacTick() - _ta;
+	    if (st->action.acp1 == (actionf_p1)A_Chase)
+		{ prof_act_chase += _ta; prof_act_chase_n++; }
+	    else if (st->action.acp1 == (actionf_p1)A_Look)
+		{ prof_act_look += _ta; prof_act_look_n++; }
+	    else
+		{ prof_act_other += _ta; prof_act_other_n++; }
+	}
 	
 	state = st->nextstate;
     } while (!mobj->tics);
@@ -414,12 +441,16 @@ P_NightmareRespawn (mobj_t* mobj)
 //
 void P_MobjThinker (mobj_t* mobj)
 {
+    prof_mobj_count++;
+
     // momentum movement
     if (mobj->momx
 	|| mobj->momy
 	|| (mobj->flags&MF_SKULLFLY) )
     {
+	long _t = I_GetMacTick();
 	P_XYMovement (mobj);
+	prof_mobj_xymove += I_GetMacTick() - _t;
 
 	// FIXME: decent NOP/NULL/Nil function pointer please.
 	if (mobj->thinker.function.acv == (actionf_v) (-1))
@@ -428,24 +459,30 @@ void P_MobjThinker (mobj_t* mobj)
     if ( (mobj->z != mobj->floorz)
 	 || mobj->momz )
     {
+	long _t = I_GetMacTick();
 	P_ZMovement (mobj);
-	
+	prof_mobj_zmove += I_GetMacTick() - _t;
+
 	// FIXME: decent NOP/NULL/Nil function pointer please.
 	if (mobj->thinker.function.acv == (actionf_v) (-1))
 	    return;		// mobj was removed
     }
 
-    
+
     // cycle through states,
     // calling action functions at transitions
     if (mobj->tics != -1)
     {
 	mobj->tics--;
-		
+
 	// you can cycle through multiple states in a tic
 	if (!mobj->tics)
+	{
+	    long _t = I_GetMacTick();
 	    if (!P_SetMobjState (mobj, mobj->state->nextstate) )
 		return;		// freed itself
+	    prof_mobj_state += I_GetMacTick() - _t;
+	}
     }
     else
     {

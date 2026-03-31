@@ -24,11 +24,21 @@ confirmed, or ruled out. Mark status with: `[ ]` untried, `[x]` done, `[-]` trie
   to 43–61% of frame time, ~7% FPS gain. Monsters react at most 4 tics late to
   player visibility changes — barely perceptible. (2026-03-21)
 
-- [ ] **Optimize P_Ticker further** — Profiled 2026-03-21 on Plutonia MAP20: even with
-  sight cache, logic is 43–61% of frame time on monster-dense maps. Remaining cost is
-  `P_Move`/`P_TryMove` (blockmap collision per monster per tic) and `P_MobjThinker`
-  (state machine, gravity). Candidate: throttle `P_Move` for distant monsters, or
-  reduce collision check frequency. Would change gameplay behavior.
+- [x] **Monster sight distance culling** — **Done 2026-03-29.** Added `monster_sight_dist`
+  (doom.cfg, default 1600): `P_AproxDistance` early-out in `P_LookForPlayers` before
+  `P_CheckSight`. Sub-profiled action functions via pointer comparison in `P_SetMobjState`:
+  A_Look was 47% of action time (~25 ticks/window, 187 calls) on Plutonia MAP20. With
+  culling: A_Look −68% (25→8 ticks), total st −32% (56→38), ptick −25% (100→75), mean
+  FPS +25% (1.93→2.42) on combat windows. Breaks demo determinism (monsters wake up
+  differently). `monster_throttle_dist` (P_Move skip for distant monsters) was already in
+  place from prior work.
+
+- [ ] **Optimize P_Ticker further** — Profiled 2026-03-29: after sight distance culling,
+  remaining logic cost on monster-dense maps is A_Chase (17 ticks, P_Move/collision +
+  P_NewChaseDir), unaccounted overhead (~35 ticks: P_PlayerThink, P_UpdateSpecials, thinker
+  dispatch), and "other" action functions (~9 ticks, attacks/deaths). Candidates: further
+  A_Chase optimization (throttle P_CheckSight inside A_Chase for non-netgame), or reduce
+  collision check frequency for distant monsters beyond `monster_throttle_dist`.
 
 ---
 
@@ -164,3 +174,6 @@ confirmed, or ruled out. Mark status with: `[ ]` untried, `[x]` done, `[-]` trie
   R_DrawColumnQuadLow_Mono (424→82 B) into 256-byte I-cache. Removed -funroll-loops,
   outlined cold paths, cached globals as locals, inlined R_GetColumn. +9.7% mean FPS,
   peak 12.0. (2026-03-28)
+- [x] **Monster sight distance culling** — `P_AproxDistance` early-out in `P_LookForPlayers`
+  before `P_CheckSight`. A_Look −68%, ptick −25%, mean FPS +25% on Plutonia MAP20.
+  Configurable via `monster_sight_dist` (doom.cfg, default 1600). (2026-03-29)

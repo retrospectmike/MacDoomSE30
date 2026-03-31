@@ -30,6 +30,11 @@ rcsid[] = "$Id: p_tick.c,v 1.4 1997/02/03 16:47:55 b1 Exp $";
 
 #include "doomstat.h"
 
+extern long I_GetMacTick(void);
+/* P_Ticker sub-profiling */
+long prof_pt_playerthink = 0;
+long prof_pt_thinkers    = 0;
+long prof_pt_specials    = 0;
 
 int	leveltime;
 
@@ -145,13 +150,26 @@ void P_Ticker (void)
     }
     
 		
-    for (i=0 ; i<MAXPLAYERS ; i++)
-	if (playeringame[i])
-	    P_PlayerThink (&players[i]);
-			
-    P_RunThinkers ();
-    P_UpdateSpecials ();
-    P_RespawnSpecials ();
+    {
+	long _t = I_GetMacTick();
+	for (i=0 ; i<MAXPLAYERS ; i++)
+	    if (playeringame[i])
+		P_PlayerThink (&players[i]);
+	prof_pt_playerthink += I_GetMacTick() - _t;
+    }
+
+    {
+	long _t = I_GetMacTick();
+	P_RunThinkers ();
+	prof_pt_thinkers += I_GetMacTick() - _t;
+    }
+
+    {
+	long _t = I_GetMacTick();
+	P_UpdateSpecials ();
+	P_RespawnSpecials ();
+	prof_pt_specials += I_GetMacTick() - _t;
+    }
 
     // for par times
     leveltime++;	

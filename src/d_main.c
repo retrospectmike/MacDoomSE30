@@ -129,6 +129,11 @@ int opt_sound         = 0;
  * 1024 ≈ 1.2s walking distance.  0 = no throttle.  Tunable in options GUI. */
 int monster_throttle_dist = 1024;
 
+/* Monster sight range: skip P_CheckSight in P_LookForPlayers for monsters
+ * farther than this (map units).  0 = no limit (vanilla behavior).
+ * 1600 ≈ ~50m, well beyond typical engagement range. */
+int monster_sight_dist = 1600;
+
 extern int detailLevel;   /* defined in m_menu.c */
 
 
@@ -239,6 +244,12 @@ extern long prof_r_scale_skip;               /* r_segs.c: segs hitting short-seg
 extern long prof_palette_skips;              /* i_video_mac.c: I_SetPalette no-op calls */
 extern long prof_r_quad_calls;              /* r_draw.c: R_DrawColumnQuadLow_Mono calls */
 extern long prof_gticker_ptick;             /* g_game.c: time in P_Ticker */
+extern long prof_mobj_xymove, prof_mobj_zmove, prof_mobj_state, prof_mobj_count;
+extern long prof_act_chase, prof_act_look, prof_act_other;
+extern long prof_act_chase_n, prof_act_look_n, prof_act_other_n;
+extern long prof_pt_playerthink, prof_pt_thinkers, prof_pt_specials;
+extern long prof_chase_move, prof_chase_attack;
+extern long prof_chase_move_n, prof_chase_attack_n;
 extern int  quad_dbg_done;                  /* r_draw.c: reset to re-arm debug log */
 static long prof_logic  = 0;
 static long prof_render = 0;
@@ -550,7 +561,19 @@ void D_DoomLoop (void)
 		     prof_logic, prof_render, prof_blit,
 		     prof_disp - prof_render - prof_blit,
 		     prof_sound);
-	    doom_log("  logic: ptick=%ld\r", prof_gticker_ptick);
+	    doom_log("  logic: ptick=%ld  mobj=%ld(xy=%ld z=%ld st=%ld)\r",
+		     prof_gticker_ptick,
+		     prof_mobj_count, prof_mobj_xymove,
+		     prof_mobj_zmove, prof_mobj_state);
+	    doom_log("    ptick: plyr=%ld thinkers=%ld specials=%ld\r",
+		     prof_pt_playerthink, prof_pt_thinkers, prof_pt_specials);
+	    doom_log("    act: chase=%ld(%ld) look=%ld(%ld) other=%ld(%ld)\r",
+		     prof_act_chase, prof_act_chase_n,
+		     prof_act_look, prof_act_look_n,
+		     prof_act_other, prof_act_other_n);
+	    doom_log("    chase: move=%ld(%ld) attack=%ld(%ld)\r",
+		     prof_chase_move, prof_chase_move_n,
+		     prof_chase_attack, prof_chase_attack_n);
 	    doom_log("  render: setup=%ld bsp=%ld planes=%ld masked=%ld\r",
 		     prof_r_setup, prof_r_bsp, prof_r_planes, prof_r_masked);
 	    { /* cy/px: approx column-renderer cycles per screen pixel (SE/30 = 16MHz/60Hz).
@@ -598,6 +621,23 @@ void D_DoomLoop (void)
 	    prof_palette_skips = 0;
 	    prof_r_quad_calls  = 0;
 	    prof_gticker_ptick = 0;
+	    prof_mobj_xymove   = 0;
+	    prof_mobj_zmove    = 0;
+	    prof_mobj_state    = 0;
+	    prof_mobj_count    = 0;
+	    prof_act_chase     = 0;
+	    prof_act_look      = 0;
+	    prof_act_other     = 0;
+	    prof_act_chase_n   = 0;
+	    prof_act_look_n    = 0;
+	    prof_act_other_n   = 0;
+	    prof_pt_playerthink = 0;
+	    prof_pt_thinkers    = 0;
+	    prof_pt_specials    = 0;
+	    prof_chase_move     = 0;
+	    prof_chase_attack   = 0;
+	    prof_chase_move_n   = 0;
+	    prof_chase_attack_n = 0;
 	    prof_hud_st        = 0;
 	    prof_hud_hu        = 0;
 	    prof_hud_mn        = 0;
@@ -1251,8 +1291,8 @@ void D_DoomMain (void)
     doom_log ("CHKPT: entering M_LoadDefaults\n");
     M_LoadDefaults ();              // load before initing other systems
     doom_log ("CHKPT: M_LoadDefaults done\r");
-    doom_log("D_DoomMain: opt_halfline=%d opt_affinetex=%d opt_solidfloor=%d solidfloor_gray=%d detailLevel=%d opt_scale2x=%d opt_directfb=%d opt_sound=%d monster_throttle=%d\r",
-             opt_halfline, opt_affine_texcol, opt_solidfloor, solidfloor_gray, detailLevel, opt_scale2x, opt_directfb, opt_sound, monster_throttle_dist);
+    doom_log("D_DoomMain: opt_halfline=%d opt_affinetex=%d opt_solidfloor=%d solidfloor_gray=%d detailLevel=%d opt_scale2x=%d opt_directfb=%d opt_sound=%d monster_throttle=%d monster_sight=%d\r",
+             opt_halfline, opt_affine_texcol, opt_solidfloor, solidfloor_gray, detailLevel, opt_scale2x, opt_directfb, opt_sound, monster_throttle_dist, monster_sight_dist);
 
     printf ("Z_Init: Init zone memory allocation daemon. \n");
     doom_log ("CHKPT: entering Z_Init\n");

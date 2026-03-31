@@ -213,6 +213,7 @@ extern int	opt_scale2x;
 extern int	opt_directfb;
 extern int	opt_sound;
 extern int	monster_throttle_dist;
+extern int	monster_sight_dist;
 
 /* dither params — consolidated from doom_dither.cfg into doom.cfg */
 extern int	dither_gamma_x100;  /* gamma ×100: 60 = 0.60, range 5-300 */
@@ -317,6 +318,9 @@ default_t	defaults[] =
     /* monster_throttle_dist: map-unit distance beyond which P_Move is
      * skipped on alternate tics.  1024 ≈ 1.2s walking.  0 = disabled. */
     {"monster_throttle_dist", &monster_throttle_dist, 1024},
+    /* monster_sight_dist: skip P_CheckSight in P_LookForPlayers for monsters
+     * beyond this range (map units).  1600 ≈ 50m.  0 = unlimited (vanilla). */
+    {"monster_sight_dist", &monster_sight_dist, 1600},
 
     /* Dither/display params — consolidated from doom_dither.cfg */
     {"dither_gamma_x100", &dither_gamma_x100, 60 },   /* 0.60 gamma */

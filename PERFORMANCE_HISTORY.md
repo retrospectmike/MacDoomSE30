@@ -10,6 +10,41 @@ Newest entries at top. Add new entries here after each significant change.
 
 ---
 
+## 2026-03-29 — Monster Sight Distance Culling (p_enemy.c)
+**Emulator: Snow (debug build)**
+**Config: detailLevel=2 halfline=1 affinetex=1 solidfloor=1 solidfloor_gray=4**
+**WAD: Plutonia MAP20 (high monster density)**
+
+Added `monster_sight_dist` (doom.cfg, default 1600 map units ≈ 50m): cheap `P_AproxDistance`
+check in `P_LookForPlayers` before the expensive `P_CheckSight` BSP raycast. Monsters beyond
+the threshold skip the sight trace entirely and stay idle. Configurable; 0 = vanilla (no limit).
+
+Sub-profiling of `P_SetMobjState` action functions revealed A_Look was the #1 logic cost on
+monster-dense maps — ~187 idle monsters per window each running P_CheckSight every tic via
+`P_LookForPlayers`. Most of these traces were for monsters far beyond engagement range.
+
+Comparison: playdemo baseline (before) vs manual gameplay (after). Demo desync prevents
+identical playback (the optimization changes which monsters wake up), but combat intensity
+(A_Chase call count ~195) is comparable across both runs.
+
+| Metric | Before | After | Delta |
+|--------|--------|-------|-------|
+| Mean FPS (combat) | 1.93 | **2.42** | **+25%** |
+| Min FPS | 1.3 | 1.5 | +0.2 |
+| Max FPS | 2.6 | **3.9** | **+1.3** |
+| ptick (mean) | 100 | **75** | **−25%** |
+| A_Look ticks (mean) | 25 | **8** | **−68%** |
+| A_Chase ticks (mean) | 20 | 17 | −15% |
+| st total (mean) | 56 | **38** | **−32%** |
+
+Note: A_Look call count unchanged (~187/window) — the P_AproxDistance early-out is so cheap
+it doesn't register in tick-granularity profiling. The savings come entirely from skipping
+the P_CheckSight BSP trace for distant monsters.
+
+**Verdict: keep. Largest logic optimization to date on monster-dense maps.**
+
+---
+
 ## 2026-03-28 — 68030 I-Cache Optimization (r_segs.c, r_draw.c, CMakeLists.txt)
 **Emulator: Snow (debug build)**
 **Config: detailLevel=2 halfline=1 affinetex=1 solidfloor=1 solidfloor_gray=4**
