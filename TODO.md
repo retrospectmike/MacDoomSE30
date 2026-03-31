@@ -24,6 +24,10 @@
 ### Options GUI
 - [ ] **Expose tunable options in-game** — monster_throttle_dist, fog_scale, solidfloor_gray, halfline, etc. Currently only settable via doom.cfg or hotkeys.
 
+### Custom WADs
+- [x] ~~**Single PWAD file picker**~~ — splash dialog button (item 5) opens StandardGetFile, selected filename shown in item 6, passed as `-file` to engine. PWAD must be in the same folder as the app.
+- [ ] **Support selecting and loading multiple PWAD files** — currently limited to one PWAD. Extend to allow picking multiple files (loop StandardGetFile, display list, expand mac_argv).
+
 ### Save/Load
 - [ ] **Load game crashes** — menu Load Game causes a crash. Save game may or may not work.
 

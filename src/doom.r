@@ -2,7 +2,7 @@
 
 #include "Retro68APPL.r"
 
-/* SIZE resource: request 48MB preferred, 8MB minimum */
+/* SIZE resource: request 16MB preferred, 10MB minimum */
 resource 'SIZE' (-1) {
     reserved,
     acceptSuspendResumeEvents,
@@ -20,6 +20,6 @@ resource 'SIZE' (-1) {
     reserved,
     reserved,
     reserved,
-    48 * 1024 * 1024,    /* preferred: 48 MB */
-    8  * 1024 * 1024     /* minimum:   8 MB */
+    16 * 1024 * 1024,    /* preferred: 16 MB */
+    10 * 1024 * 1024     /* minimum:  10 MB */
 };

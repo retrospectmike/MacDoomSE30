@@ -140,6 +140,12 @@ void UpdatePictureItem(DialogPtr dialog, short itemNum, short pictID)
 
 static int   s_timedemo = 0;  /* benchmark checkbox — one-shot, not saved */
 
+/* PWAD file selection — user picks via StandardGetFile from splash dialog.
+ * PWAD must be in the same folder as the app (CWD is set there at startup). */
+static int   s_pwad_selected = 0;
+static FSSpec s_pwad_fss;
+static char   s_pwad_name[64];  /* short filename for -file arg */
+
 /* ---- Settings dialog helpers -------------------------------------------- */
 static void dlg_disable_check(DialogPtr dlg, short item)
 {
@@ -340,7 +346,7 @@ static pascal Boolean SplashFilterProc(DialogPtr dlg, EventRecord *event, short 
     return false;
 }
 
-static char *mac_argv[] = { "DoomSE30", "-playdemo", "pl20ben" };
+static char *mac_argv[6] = { "DoomSE30", "-playdemo", "pl20ben" };
 static WindowPtr bg_window = nil;  /* fullscreen black background window */
 
 void I_NoWadAlert(void)
@@ -455,6 +461,32 @@ int main(void)
                     SelectWindow(splashdialog);
                     SetPort(splashdialog);
                     break;
+                case 5:  /* Select PWAD... */
+                {
+                    StandardFileReply reply;
+                    SFTypeList types;
+                    StandardGetFile(nil, -1, types, &reply);
+                    if (reply.sfGood) {
+                        Handle h; short type; Rect r;
+                        Str255 pname;
+
+                        s_pwad_fss = reply.sfFile;
+                        s_pwad_selected = 1;
+
+                        /* Convert Pascal name to C string for -file arg */
+                        BlockMoveData(reply.sfFile.name + 1, s_pwad_name,
+                                      reply.sfFile.name[0]);
+                        s_pwad_name[reply.sfFile.name[0]] = '\0';
+
+                        /* Update static text item 6 with the filename */
+                        BlockMoveData(reply.sfFile.name, pname, reply.sfFile.name[0] + 1);
+                        GetDialogItem(splashdialog, 6, &type, &h, &r);
+                        SetDialogItemText(h, pname);
+                    }
+                    SelectWindow(splashdialog);
+                    SetPort(splashdialog);
+                    break;
+                }
             }
         }
     }
@@ -510,6 +542,14 @@ int main(void)
     /* Set up Doom's command-line argument globals */
     myargv = mac_argv;
     myargc = s_timedemo ? 3 : 1;
+
+    /* Append -file <pwad> if user selected one (must be in app folder) */
+    if (s_pwad_selected) {
+        mac_argv[myargc]     = "-file";
+        mac_argv[myargc + 1] = s_pwad_name;
+        myargc += 2;
+        doom_log("PWAD selected: %s\r", s_pwad_name);
+    }
 
     /* Doom's real entry point — setjmp here so I_Quit()'s longjmp lands back */
     if (setjmp(doom_quit_jmp) == 0)
