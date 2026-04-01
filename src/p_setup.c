@@ -688,11 +688,13 @@ P_SetupLevel
     if (precache)
 	R_PrecacheLevel ();
 
+#ifndef DOOM_RELEASE_BUILD
     {
 	extern void doom_log(const char *fmt, ...);
 	doom_log("ZONE %s: free=%ld KB\r",
 		 lumpname, (long)Z_FreeMemory() / 1024);
     }
+#endif
 
 }
 

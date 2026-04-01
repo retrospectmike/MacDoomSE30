@@ -111,7 +111,7 @@ void CenterDialog(DialogPtr dialog)
 
 #define rDLOG 128           // Resource ID for our startup dialog
 #define kButtonOK 1         // OK button
-#define kPictureItem 3      // Picture item
+#define kPictureItem 7      // Picture item
 #define kFirstPICT 128      // First PICT resource ID
 #define kLastPICT 133       // Last PICT resource ID (adjust as needed)
 
@@ -218,7 +218,7 @@ static void apply_factory_defaults(void)
     fog_scale         = 10240;
     detailLevel       = 2;
     opt_scale2x       = 0;
-    opt_sound         = 0;
+    opt_sound         = 1;
     no_lighting       = 0;
     dither_gamma_x100 = 60;
     dither_gblack     = 5;

@@ -314,7 +314,7 @@ default_t	defaults[] =
     /* directfb: skip double-buffer, render direct to screen (may tear) */
     {"directfb",        &opt_directfb,      0},
     /* Sound effects: 0=off (silent, zero overhead), 1=on (Sound Manager SFX) */
-    {"opt_sound",       &opt_sound,         0},
+    {"opt_sound",       &opt_sound,         1},
     /* monster_throttle_dist: map-unit distance beyond which P_Move is
      * skipped on alternate tics.  1024 ≈ 1.2s walking.  0 = disabled. */
     {"monster_throttle_dist", &monster_throttle_dist, 1024},
