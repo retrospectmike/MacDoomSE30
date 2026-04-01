@@ -7,14 +7,16 @@ This is a port of [linuxdoom](https://github.com/id-Software/DOOM) to MacOS Syst
 
 ## System Requirements
 - Macintosh SE/30 (68030 processor)
-- System 7.5.x with [MODE-32](https://en.wikipedia.org/wiki/MODE32) to access all your RAM
-- 16 MB of RAM
-  - Doesn't currently need it all and may adjust this later
+- System 7.5.x
+- 3 MB of RAM
+  - 3 MB is enough for all of Doom 1, 2, Plutonia, or TNT Evilution
+  - Other WADs may vary
 - Enough storage to fit the game and your .wad file(s)
   - I recommend [BlueSCSI](https://github.com/BlueSCSI/BlueSCSI-v2/)
 - WAD file(s)
   - doom.wad / doom1.wad / doom2.wad / Tnt.wad / Plutonia.wad  etc.
   - You'll have to provide one or more of these yourself, placed in the same dir as the application file
+  - Custom WAD files (PWADs) need to go in the application's dir. too and be picked in the splash GUI
 
 ## Background
 ### Why?
@@ -24,8 +26,6 @@ Yes.  At time of writing, the frame rate is reasonable (3-10fps at the applicati
 Default graphics are small (non-2x full screen mode), at ultra low-quality ("Quad" mode) with line skippins (half line option) and heavy fog.  But you can adjust all of these in the options and find the mix you like.  I do think Full Screen option without Half Line looks good and although slower, is still playable for fans.
 ### How?
 Though I love to tinker with these vintage Macs (see my other repos), I wanted to do something bigger and I wanted to use AI to help.  So this was a natural project to tackle and practice using AI.  I used Claude Code to help plan / build / iterate the port.  It was very helpful and did most of the coding.  Is this cheating?  That's up to you to decide.  But the result is a playable Doom on the SE/30.  Was it literally feed it the linuxdoom repo and hit Go and wait a few hours and done?  **NO!**.  I messed with it daily trying to make adjustments and find + fix bugs, intelligently implement optimizations, fight it when things didn't work, switching models to try to be efficient with usage, making suggestions on what to try, and even calling out some of its more obv mistakes in code, etc.  Took several weeks of burning up my subscription tokens daily to get to this point.  Surely, I would have taken much much longer to do it myself -- and some things like 68k assembly I likely would never have had the time to learn and do.
-### Why 64MB of RAM?
-It's easy to upgrade the SE/30 to 64MB or even 128MB of RAM.  Much easier than it is to upgrade the CPU.  So all optimizations were done assuming memory is no object, but processing is scarce.
 ### What optimizations did you execute?
 The file `PERFORMANCE_HISTORY.md` is a record of changes and, when recorded, performance of the various improvements along the way.  `OPTIMIZATION_IDEAS.md` also captures details on optimizations done, failed, and not done.  
 The main ones you'll notice are:
@@ -52,8 +52,31 @@ The main ones you'll notice are:
 # Careware
 This program is care-ware. If you enjoy it, do something nice to someone today!
 
-# Release Notes
-• 1.0bX
+WAD file (IWAD to be more exact)
+• You need a WAD file (i.e. doom1.wad, doom2.wad, etc.).  I can't help you get WAD files or include them, that's up to you.
+
+Place your WAD file in the same folder as the application.
+
+The program searches for WADs in this order:
+  1. doom2.wad    (Doom II)
+  2. plutonia.wad (Final Doom: The Plutonia Experiment)
+  3. tnt.wad      (Final Doom: TNT Evilution)
+  4. doom.wad     (Doom - registered/retail)
+  5. doom1.wad    (Doom - shareware)
+
+Custom WAD files (PWAD to be more exact)
+They're supported, but only 1 at a time.  See doomworld.com and other sites.
+To use a pwad:
+  1. must be in the same folder as the Doom application!!
+  2. The program's opening screen has a "Pick WAD..." button.  Click it and select your WAD file.
+  3. Don't forget that these WAD files target specific level(s) - and if that level isn't the first level (eg E1M1) then you'll need to IDCLEV your way to the correct level.  
+
+Release Notes
+• 1.0.0
+ - Initial public release
+ - Fixed transparency rendering bug
+ - Reduced RAM requirements to more realistic yet still conservative
+• 1.0b5pre
 - Support for WAD files (PWADs)
 - Optimizations targeting SE/30 68030 processor cache and registers
 • 1.0b4
