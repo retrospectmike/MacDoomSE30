@@ -1317,16 +1317,12 @@ void D_DoomMain (void)
     {
         extern int g_color_depth;
         if (g_color_depth >= 8) {
-            opt_halfline      = 0;
-            opt_affine_texcol = 0;
-            opt_solidfloor    = 0;
-            opt_scale2x       = 0;
-            fog_scale         = 0;
-            /* QUAD (2) and MUSH (3) have no 8-bit renderers yet — clamp to LOW.
-             * HIGH (0) and LOW (1) pass through unchanged. */
-            if (detailLevel > 1) detailLevel = 1;
-            doom_log("D_DoomMain: color display (%d-bit), mono opts disabled, detailLevel=%d\r",
-                     g_color_depth, detailLevel);
+            /* halfline, affinetex, solidfloor all have color renderer support — leave them.
+             * scale2x has no color path; fog_scale is a mono depth-cull heuristic. */
+            opt_scale2x = 0;
+            fog_scale   = 0;
+            doom_log("D_DoomMain: color display (%d-bit), detailLevel=%d halfline=%d affinetex=%d solidfloor=%d\r",
+                     g_color_depth, detailLevel, opt_halfline, opt_affine_texcol, opt_solidfloor);
         }
     }
 

@@ -10,6 +10,57 @@ Newest entries at top. Add new entries here after each significant change.
 
 ---
 
+## 2026-04-06 — Color Renderer Parity (halfline + solidfloor + affinetex + QUAD)
+**Emulator: Snow Mac IIcx (gestalt=8), debug build**
+**Config: detailLevel=2 halfline=1 affinetex=1 solidfloor=1 solidfloor_gray=4**
+**WAD: doom1.wad E1M1, timedemo pl20ben.lmp**
+
+Ported all mono renderer performance opts to the 8-bit color path and removed the block
+that disabled them for color displays.
+
+### Changes
+
+**`r_draw.c`** — halfline support added to all color column renderers:
+- `R_DrawColumn`, `R_DrawColumnLow`: skip odd screen rows, double `fracstep`, iterate every 2 rows
+- `R_DrawColumnQuadColor`, `R_DrawColumnMushColor`: same pattern
+- `R_DrawSpan`, `R_DrawSpanLow`, `R_DrawSpanQuadColor`, `R_DrawSpanMushColor`: early return on odd rows
+
+**`r_main.c`** — scanline doubling for color: after all rendering, copies each even row to
+the adjacent odd row in `screens[0]` (view area only), matching the mono double-buffer pass.
+
+**`d_main.c`** — removed the block that zeroed `opt_halfline`, `opt_affine_texcol`,
+`opt_solidfloor`, and clamped `detailLevel` to 1 on color displays. `opt_scale2x` and
+`fog_scale` remain suppressed (no color path for either).
+
+### Results
+
+Three-way comparison on same machine (Snow IIcx) + SE/30 reference:
+
+| Metric | Old color | **New color** | IIcx 1-bit | SE/30 1-bit |
+|--------|-----------|---------------|------------|-------------|
+| detailLevel | 1 (LOW) | **2 (QUAD)** | 2 (QUAD) | 2 (QUAD) |
+| halfline | off | **on** | on | on |
+| solidfloor | off | **on** | on | on |
+| FPS mean | 3.50 | **6.75** | 6.77 | 5.46 |
+| FPS median | 3.1 | **6.2** | 6.4 | ~5.4 |
+| render ticks (mean) | 103.0 | **45.5** | 44.8 | 52.0 |
+| blit ticks (mean) | 5.9 | **7.1** | 10.2 | ~10 |
+| logic ticks (mean) | 16.5 | 17.7 | 17.7 | — |
+
+**+93% FPS** over old disabled color path. New color is statistically identical to
+1-bit mono on the same machine (6.75 vs 6.77 — within noise). Render cost is equal
+at the same detail level (45.5 vs 44.8 ticks); blit is cheaper for color (plain
+memcpy vs Bayer dither: 7.1 vs 10.2 ticks).
+
+IIcx is 1.24× faster than SE/30 (6.75 vs 5.46); render ratio is 1.14× (52.0 vs
+45.5). Clock speed advantage (25 vs 16 MHz = 1.56×) is not fully realised —
+consistent with NuBus VRAM write penalty on IIcx vs on-board VRAM on SE/30.
+
+**Verdict: color and mono are now at parity. All scene-complexity performance
+characteristics are the same; only the blit path differs (color slightly cheaper).**
+
+---
+
 ## 2026-04-05 — dc_iscale Exact Divide + Affine Midpoint Subdivision (r_segs.c)
 **Emulator: Snow (debug build)**
 **Config: detailLevel=2 halfline=1 solidfloor=1 solidfloor_gray=4**

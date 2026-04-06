@@ -151,20 +151,36 @@ void R_DrawColumn (void)
     fracstep = dc_iscale; 
     frac = dc_texturemid + (dc_yl-centery)*fracstep; 
 
+    if (opt_halfline) {
+	/* Half-line: skip odd screen rows, double fracstep */
+	int start_y = dc_yl, nrows;
+	if ((start_y + viewwindowy) & 1) { start_y++; count--; }
+	if (count < 0) return;
+	dest = ylookup[start_y] + columnofs[dc_x];
+	fracstep = dc_iscale << 1;
+	frac = dc_texturemid + (start_y - centery) * dc_iscale;
+	nrows = (count >> 1) + 1;
+	do {
+	    *dest = dc_colormap[dc_source[(frac>>FRACBITS)&127]];
+	    dest += SCREENWIDTH * 2;
+	    frac += fracstep;
+	} while (--nrows > 0);
+	return;
+    }
     // Inner loop that does the actual texture mapping,
     //  e.g. a DDA-lile scaling.
     // This is as fast as it gets.
-    do 
+    do
     {
 	// Re-map color indices from wall texture column
 	//  using a lighting/special effects LUT.
 	*dest = dc_colormap[dc_source[(frac>>FRACBITS)&127]];
-	
-	dest += SCREENWIDTH; 
+
+	dest += SCREENWIDTH;
 	frac += fracstep;
-	
-    } while (count--); 
-} 
+
+    } while (count--);
+}
 
 
 
@@ -256,21 +272,36 @@ void R_DrawColumnLow (void)
     // once per post; a doubled global would crash on the second post.
     {
     int x2 = dc_x << 1;
+    if (opt_halfline) {
+	/* Half-line: skip odd screen rows, double fracstep */
+	int start_y = dc_yl, nrows;
+	if ((start_y + viewwindowy) & 1) { start_y++; count--; }
+	if (count >= 0) {
+	    dest  = ylookup[start_y] + columnofs[x2];
+	    dest2 = ylookup[start_y] + columnofs[x2+1];
+	    fracstep = dc_iscale << 1;
+	    frac = dc_texturemid + (start_y - centery) * dc_iscale;
+	    nrows = (count >> 1) + 1;
+	    do {
+		*dest2 = *dest = dc_colormap[dc_source[(frac>>FRACBITS)&127]];
+		dest += SCREENWIDTH * 2; dest2 += SCREENWIDTH * 2;
+		frac += fracstep;
+	    } while (--nrows > 0);
+	}
+    } else {
     dest  = ylookup[dc_yl] + columnofs[x2];
     dest2 = ylookup[dc_yl] + columnofs[x2+1];
-    
-    fracstep = dc_iscale; 
+    fracstep = dc_iscale;
     frac = dc_texturemid + (dc_yl-centery)*fracstep;
-    
-    do 
+    do
     {
 	// Hack. Does not work corretly.
 	*dest2 = *dest = dc_colormap[dc_source[(frac>>FRACBITS)&127]];
 	dest += SCREENWIDTH;
 	dest2 += SCREENWIDTH;
-	frac += fracstep; 
-
+	frac += fracstep;
     } while (count--);
+    }
     } /* end x2 block */
 }
 
@@ -539,30 +570,34 @@ int			dscount;
 
 //
 // Draws the actual span.
-void R_DrawSpan (void) 
-{ 
+void R_DrawSpan (void)
+{
     fixed_t		xfrac;
-    fixed_t		yfrac; 
-    byte*		dest; 
+    fixed_t		yfrac;
+    byte*		dest;
     int			count;
-    int			spot; 
-	 
-#ifdef RANGECHECK 
+    int			spot;
+
+    /* Half-line: skip odd screen rows */
+    if (opt_halfline && ((ds_y + viewwindowy) & 1))
+	return;
+
+#ifdef RANGECHECK
     if (ds_x2 < ds_x1
 	|| ds_x1<0
-	|| ds_x2>=SCREENWIDTH  
+	|| ds_x2>=SCREENWIDTH
 	|| (unsigned)ds_y>SCREENHEIGHT)
     {
 	I_Error( "R_DrawSpan: %i to %i at %i",
 		 ds_x1,ds_x2,ds_y);
     }
-//	dscount++; 
-#endif 
+//	dscount++;
+#endif
 
-    
-    xfrac = ds_xfrac; 
-    yfrac = ds_yfrac; 
-	 
+
+    xfrac = ds_xfrac;
+    yfrac = ds_yfrac;
+
     dest = ylookup[ds_y] + columnofs[ds_x1];
 
     // We do not check for zero spans here?
@@ -662,26 +697,30 @@ void R_DrawSpan (void)
 //
 // Again..
 //
-void R_DrawSpanLow (void) 
-{ 
+void R_DrawSpanLow (void)
+{
     fixed_t		xfrac;
-    fixed_t		yfrac; 
-    byte*		dest; 
+    fixed_t		yfrac;
+    byte*		dest;
     int			count;
-    int			spot; 
-	 
-#ifdef RANGECHECK 
+    int			spot;
+
+    /* Half-line: skip odd screen rows */
+    if (opt_halfline && ((ds_y + viewwindowy) & 1))
+	return;
+
+#ifdef RANGECHECK
     if (ds_x2 < ds_x1
 	|| ds_x1<0
-	|| ds_x2>=SCREENWIDTH  
+	|| ds_x2>=SCREENWIDTH
 	|| (unsigned)ds_y>SCREENHEIGHT)
     {
 	I_Error( "R_DrawSpan: %i to %i at %i",
 		 ds_x1,ds_x2,ds_y);
     }
-//	dscount++; 
-#endif 
-	 
+//	dscount++;
+#endif
+
     xfrac = ds_xfrac; 
     yfrac = ds_yfrac; 
 
@@ -2080,9 +2119,31 @@ void R_DrawColumnQuadColor(void)
     byte   *dest2 = ylookup[dc_yl] + columnofs[x4+1];
     byte   *dest3 = ylookup[dc_yl] + columnofs[x4+2];
     byte   *dest4 = ylookup[dc_yl] + columnofs[x4+3];
-    fixed_t fracstep = dc_iscale;
-    fixed_t frac     = dc_texturemid + (dc_yl - centery) * fracstep;
+    fixed_t fracstep;
+    fixed_t frac;
 
+    if (opt_halfline) {
+        int start_y = dc_yl, nrows;
+        if ((start_y + viewwindowy) & 1) { start_y++; count--; }
+        if (count < 0) return;
+        dest  = ylookup[start_y] + columnofs[x4];
+        dest2 = ylookup[start_y] + columnofs[x4+1];
+        dest3 = ylookup[start_y] + columnofs[x4+2];
+        dest4 = ylookup[start_y] + columnofs[x4+3];
+        fracstep = dc_iscale << 1;
+        frac = dc_texturemid + (start_y - centery) * dc_iscale;
+        nrows = (count >> 1) + 1;
+        do {
+            byte v = dc_colormap[dc_source[(frac>>FRACBITS)&127]];
+            *dest4 = *dest3 = *dest2 = *dest = v;
+            dest  += SCREENWIDTH*2; dest2 += SCREENWIDTH*2;
+            dest3 += SCREENWIDTH*2; dest4 += SCREENWIDTH*2;
+            frac  += fracstep;
+        } while (--nrows > 0);
+        return;
+    }
+    fracstep = dc_iscale;
+    frac     = dc_texturemid + (dc_yl - centery) * fracstep;
     do {
         byte v = dc_colormap[dc_source[(frac>>FRACBITS)&127]];
         *dest4 = *dest3 = *dest2 = *dest = v;
@@ -2104,6 +2165,9 @@ void R_DrawSpanQuadColor(void)
     byte   *dest;
     int     count;
     int     spot;
+
+    if (opt_halfline && ((ds_y + viewwindowy) & 1))
+        return;
 
     count = ds_x2 - ds_x1;
     ds_x1 <<= 2;
@@ -2138,9 +2202,38 @@ void R_DrawColumnMushColor(void)
     byte   *dest6 = ylookup[dc_yl] + columnofs[x8+5];
     byte   *dest7 = ylookup[dc_yl] + columnofs[x8+6];
     byte   *dest8 = ylookup[dc_yl] + columnofs[x8+7];
-    fixed_t fracstep = dc_iscale;
-    fixed_t frac     = dc_texturemid + (dc_yl - centery) * fracstep;
+    fixed_t fracstep;
+    fixed_t frac;
 
+    if (opt_halfline) {
+        int start_y = dc_yl, nrows;
+        if ((start_y + viewwindowy) & 1) { start_y++; count--; }
+        if (count < 0) return;
+        dest  = ylookup[start_y] + columnofs[x8];
+        dest2 = ylookup[start_y] + columnofs[x8+1];
+        dest3 = ylookup[start_y] + columnofs[x8+2];
+        dest4 = ylookup[start_y] + columnofs[x8+3];
+        dest5 = ylookup[start_y] + columnofs[x8+4];
+        dest6 = ylookup[start_y] + columnofs[x8+5];
+        dest7 = ylookup[start_y] + columnofs[x8+6];
+        dest8 = ylookup[start_y] + columnofs[x8+7];
+        fracstep = dc_iscale << 1;
+        frac = dc_texturemid + (start_y - centery) * dc_iscale;
+        nrows = (count >> 1) + 1;
+        do {
+            byte v = dc_colormap[dc_source[(frac>>FRACBITS)&127]];
+            *dest8 = *dest7 = *dest6 = *dest5 =
+            *dest4 = *dest3 = *dest2 = *dest  = v;
+            dest  += SCREENWIDTH*2; dest2 += SCREENWIDTH*2;
+            dest3 += SCREENWIDTH*2; dest4 += SCREENWIDTH*2;
+            dest5 += SCREENWIDTH*2; dest6 += SCREENWIDTH*2;
+            dest7 += SCREENWIDTH*2; dest8 += SCREENWIDTH*2;
+            frac  += fracstep;
+        } while (--nrows > 0);
+        return;
+    }
+    fracstep = dc_iscale;
+    frac     = dc_texturemid + (dc_yl - centery) * fracstep;
     do {
         byte v = dc_colormap[dc_source[(frac>>FRACBITS)&127]];
         *dest8 = *dest7 = *dest6 = *dest5 =
@@ -2165,6 +2258,9 @@ void R_DrawSpanMushColor(void)
     byte   *dest;
     int     count;
     int     spot;
+
+    if (opt_halfline && ((ds_y + viewwindowy) & 1))
+        return;
 
     count = ds_x2 - ds_x1;
     ds_x1 <<= 3;

@@ -143,11 +143,11 @@ confirmed, or ruled out. Mark status with: `[ ]` untried, `[x]` done, `[-]` trie
 - [x] **FixedDiv2 → long long** — Eliminated FPU dependency (Phase 2, 2026-02-26)
 - [x] **Direct 1-bit framebuffer renderers** — R_DrawColumn_Mono etc., skip intermediate buffer (Phase 4, 2026-03-01)
 - [x] **68030 ASM pixel macros** — COLMONO_GRAY / COLMONO_BIT with SWAP, BSET/BCLR (2026-03-01)
-- [x] **Flat floor/ceiling (solidfloor)** — Eliminates span drawing entirely (2026-03-01)
+- [x] **Flat floor/ceiling (solidfloor)** — Eliminates span drawing entirely (2026-03-01). **Ported to color 2026-04-06**: was suppressed on color displays; now active. `screens[0]` view area pre-cleared to index 0 (black) each frame; spans skipped.
 - [x] **Double-buffering** — Eliminates mid-frame flicker (2026-03-02)
-- [x] **halfline rendering** — Render even rows only; odd rows copied (2026-03-02)
+- [x] **halfline rendering** — Render even rows only; odd rows copied (2026-03-02). **Ported to color 2026-04-06**: all color column renderers (HIGH/LOW/QUAD/MUSH) skip odd rows + double fracstep; `R_RenderPlayerView` duplicates even→odd rows in `screens[0]`. Color spans early-return on odd rows.
 - [-] **iscale linear interpolation** — Replaces per-column 32-bit divide with linear step (2026-03-02). **Reverted 2026-04-05**: `1/scale` is nonlinear → bow error on angled walls + masked texture noise (out-of-bounds post reads). Exact per-column divide (`0xffffffffu / l_scale`) restored; perf cost negligible (+4.8% segloop, ~0% FPS).
-- [x] **Affine texture column stepping** — Replaces per-column FixedMul with linear step (2026-03-02). **Upgraded to midpoint subdivision 2026-04-05** (`AFFINETEX_MIDPOINT 1`): exact texcol at start, midpoint, and end of each segment (2 extra FixedMuls/seg). Error 4×, perf +0.4% FPS vs old linear, +2.0% vs affine OFF. Default ON.
+- [x] **Affine texture column stepping** — Replaces per-column FixedMul with linear step (2026-03-02). **Upgraded to midpoint subdivision 2026-04-05** (`AFFINETEX_MIDPOINT 1`): exact texcol at start, midpoint, and end of each segment (2 extra FixedMuls/seg). Error 4×, perf +0.4% FPS vs old linear, +2.0% vs affine OFF. Default ON. **Active for color 2026-04-06**: was suppressed on color displays; now passes through from doom.cfg.
 - [x] **Visplane mark skip** — Suppress floor/ceiling visplane writes when solidfloor=1 (2026-03-02)
 - [x] **QUAD mode (detailLevel=2)** — 4px-wide columns, nibble framebuffer writes (2026-03-07)
 - [x] **BSP bbox fog culling** — Prune entire BSP subtrees beyond fog distance (2026-03-08)

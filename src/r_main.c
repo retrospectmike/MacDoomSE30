@@ -1027,6 +1027,17 @@ void R_RenderPlayerView (player_t* player)
 		    + (viewwindowy + ey + fb_mono_yoff) * fb_mono_rowbytes + x_byte;
 		memcpy(even_row + fb_mono_rowbytes, even_row, n_bytes);
 	    }
+	} else if (opt_halfline && !fb_mono_base && scaledviewwidth > 0 && viewheight > 1) {
+	    /* Color path: duplicate even screen rows to odd rows in screens[0] view area */
+	    extern int g_color_depth;
+	    if (g_color_depth >= 8) {
+		int ey;
+		for (ey = 0; ey + 1 < viewheight; ey += 2) {
+		    byte *even_row = screens[0]
+			+ (viewwindowy + ey) * SCREENWIDTH + viewwindowx;
+		    memcpy(even_row + SCREENWIDTH, even_row, scaledviewwidth);
+		}
+	    }
 	}
     }
 
