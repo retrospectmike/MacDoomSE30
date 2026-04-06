@@ -18,6 +18,12 @@ This is a port of [linuxdoom](https://github.com/id-Software/DOOM) to MacOS Syst
   - You'll have to provide one or more of these yourself, placed in the same dir as the application file
   - Custom WAD files (PWADs) need to go in the application's dir. too and be picked in the splash GUI
 
+Non-SE/30 machines:
+- If running on newer machines, you need to have 32-bit addressing 
+  - Most newer machines have 32-bit clean roms from the factory
+  - For now, it'll need Mode32 installed and 32-bit addressing turned on
+  - TODO: See if this is a bug or not
+
 ## Background
 ### Why?
 I wanted to play Doom on my Macintosh SE/30 and I wondered if it was possible.
