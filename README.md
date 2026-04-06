@@ -41,7 +41,7 @@ The main ones you'll notice are:
 - On-target SE/30 testing for actual performance evaluation and of course real-world experience testing
 
 ## Special Thanks
-- TinkerDifferent.com
+- [TinkerDifferent.com](https://tinkerdifferent.com)
 - The Macintosh SE/30 team
 - Steve Wozniak - because why not
 - Susan Kare - because she'd appreciate it
@@ -53,7 +53,7 @@ The main ones you'll notice are:
 This program is care-ware. If you enjoy it, do something nice to someone today!
 
 WAD file (IWAD to be more exact)
-• You need a WAD file (i.e. doom1.wad, doom2.wad, etc.).  I can't help you get WAD files or include them, that's up to you.
+- You need a WAD file (i.e. doom1.wad, doom2.wad, etc.).  I can't help you get WAD files or include them, that's up to you.
 
 Place your WAD file in the same folder as the application.
 
