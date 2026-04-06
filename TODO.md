@@ -16,7 +16,7 @@
 
 ### Performance / Hardware
 - [ ] **Ensure dcache enabled on 68040 systems** — Quadra 650 timedemo (2026-04-05) showed `CACR=0x80008000` (icache ON, dcache OFF). dcache off measurably hurts column renderer texture fetches. Need to enable dcache in `I_Init` on 68040; SE/30 (68030) has no dcache so this is 040-only. Check `SwapDataCache` logic — it may be intentionally disabled for compatibility.
-- [ ] **Test on real Mac IIci or Quadra 650 hardware** — Snow emulator crashes on Quadra 650 with a corrupt Level 2 interrupt dispatch chain entry (function ptr `$00004D0A` at `$3388+8`). Crash is 100% reproducible, happens in both mono and color modes, debug and release builds, with sound off. Root cause unknown — HideCursor, _HWPriv, SndNewChannel all ruled out. Likely a Snow emulator bug (Basilisk II/SE/30 unaffected). Needs verification on real hardware to determine if it's emulator-only.
+- [x] ~~**Mac IIci / Quadra crash**~~ — Root cause: `NewPtr` 24-bit truncation in `I_ZoneBase`. Without Mode32/32-bit addressing, `NewPtr(48MB)` etc. truncate size to 24 bits → `NewPtr(0)` → returns valid non-NULL zero-byte block → Z_Init treats it as a 48MB zone → walks into system memory → corrupts interrupt dispatch chain → crash. Fix: `MaxMem()` guard before allocation loop; skips any size exceeding largest contiguous free block. Fixed 2026-04-05. The Gestalt `_HWPriv` guard added during investigation is also correct and kept.
 
 ### Rendering
 - [x] ~~**2× pixel scale**~~ — Implemented 2026-03-14.

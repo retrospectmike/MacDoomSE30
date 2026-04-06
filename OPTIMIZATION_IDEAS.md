@@ -146,8 +146,8 @@ confirmed, or ruled out. Mark status with: `[ ]` untried, `[x]` done, `[-]` trie
 - [x] **Flat floor/ceiling (solidfloor)** — Eliminates span drawing entirely (2026-03-01)
 - [x] **Double-buffering** — Eliminates mid-frame flicker (2026-03-02)
 - [x] **halfline rendering** — Render even rows only; odd rows copied (2026-03-02)
-- [x] **iscale linear interpolation** — Replaces per-column 32-bit divide with linear step (2026-03-02)
-- [x] **Affine texture column stepping** — Replaces per-column FixedMul with addition (2026-03-02)
+- [-] **iscale linear interpolation** — Replaces per-column 32-bit divide with linear step (2026-03-02). **Reverted 2026-04-05**: `1/scale` is nonlinear → bow error on angled walls + masked texture noise (out-of-bounds post reads). Exact per-column divide (`0xffffffffu / l_scale`) restored; perf cost negligible (+4.8% segloop, ~0% FPS).
+- [x] **Affine texture column stepping** — Replaces per-column FixedMul with linear step (2026-03-02). **Upgraded to midpoint subdivision 2026-04-05** (`AFFINETEX_MIDPOINT 1`): exact texcol at start, midpoint, and end of each segment (2 extra FixedMuls/seg). Error 4×, perf +0.4% FPS vs old linear, +2.0% vs affine OFF. Default ON.
 - [x] **Visplane mark skip** — Suppress floor/ceiling visplane writes when solidfloor=1 (2026-03-02)
 - [x] **QUAD mode (detailLevel=2)** — 4px-wide columns, nibble framebuffer writes (2026-03-07)
 - [x] **BSP bbox fog culling** — Prune entire BSP subtrees beyond fog distance (2026-03-08)

@@ -349,6 +349,38 @@ static pascal Boolean SplashFilterProc(DialogPtr dlg, EventRecord *event, short 
 static char *mac_argv[8] = { "DoomSE30", "-playdemo", "pl20ben" };
 static WindowPtr bg_window = nil;  /* fullscreen black background window */
 
+/*
+ * FatalConfigAlert — show a plain-text error screen and quit cleanly.
+ * Used before bg_window exists, so opens its own temporary fullscreen window.
+ * Does not return.
+ */
+static void FatalConfigAlert(ConstStr255Param line1, ConstStr255Param line2)
+{
+    WindowPtr    w;
+    Rect         r;
+    EventRecord  evt;
+    int          cx, cy;
+    ConstStr255Param line3 = "\pClick or press any key to exit.";
+
+    r = qd.screenBits.bounds;
+    w = NewWindow(nil, &r, "\p", true, plainDBox, (WindowPtr)-1, false, 0);
+    if (!w) ExitToShell();
+    SetPort(w);
+    FillRect(&r, &qd.black);
+    TextFont(systemFont); TextSize(12); TextFace(bold); TextMode(srcBic);
+    cx = (r.right - r.left) / 2;
+    cy = (r.bottom - r.top) / 2;
+    MoveTo(cx - StringWidth(line1) / 2, cy - 14); DrawString(line1);
+    MoveTo(cx - StringWidth(line2) / 2, cy);      DrawString(line2);
+    TextFace(normal);
+    MoveTo(cx - StringWidth(line3) / 2, cy + 18); DrawString(line3);
+
+    while (!GetNextEvent(mDownMask | keyDownMask, &evt))
+        ;
+    DisposeWindow(w);
+    ExitToShell();
+}
+
 void I_NoWadAlert(void)
 {
     EventRecord evt;
@@ -384,6 +416,12 @@ void I_NoWadAlert(void)
 int main(void)
 {
     DialogPtr       splashdialog;
+    long            chain_val_entry;  /* $3390 before any toolbox init */
+
+    /* Snapshot Level 2 interrupt dispatch chain entry before ANY of our code
+     * runs — used to determine if the chain is corrupt from ROM init or if
+     * our toolbox init sequence corrupts it. */
+    chain_val_entry = *(long *)0x3390;
 
     /* Standard Mac Toolbox init — MUST come before any QuickDraw/printf */
     MaxApplZone();
@@ -406,7 +444,30 @@ int main(void)
     SetCWDToAppFolder();
     I_OpenLog();
 
-    doom_log("=== Doom SE/30 starting ===\r");
+    doom_log("=== Doom SE/30 starting ===\n");
+
+    /* NuBus Macs require 32-bit addressing. In 24-bit mode the NuBus address
+     * space ($F0000000+) is truncated to 24 bits by the CPU, so the Level 2
+     * interrupt handler reads garbage instead of NuBus card registers → crash.
+     * SE/30 has no NuBus and is fine in either mode.
+     * gestalt32BitAddressing (bit 0 of gestaltAddressingModeAttr): 1 = 32-bit. */
+    {
+        long machine_type = 0;
+        long addr_attr    = 0;
+        Gestalt(gestaltMachineType,        &machine_type);
+        Gestalt(gestaltAddressingModeAttr, &addr_attr);
+        doom_log("main: machine=%ld addr_attr=%08lX\n", machine_type, addr_attr);
+        if (machine_type != kMacModelSE30 &&
+            !(addr_attr & (1L << gestalt32BitAddressing))) {
+            doom_log("main: 24-bit mode on NuBus machine -- aborting\n");
+            doom_log_flush();
+            FatalConfigAlert(
+                "\p32-bit Addressing is required on this Mac.",
+                "\pOpen Memory control panel and enable 32-bit Addressing (or install Mode32)."
+            );
+            /* does not return */
+        }
+    }
 
     /* Load doom.cfg now so settings dialog reflects saved values.
      * basedefault must be set first — IdentifyVersion() normally does this

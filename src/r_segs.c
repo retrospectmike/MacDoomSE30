@@ -97,9 +97,19 @@ static fixed_t  rw_iscale;
 static fixed_t  rw_iscalestep;
 /* Affine texture column stepping — replaces FixedMul(finetangent,rw_distance) per column
  * (~70 cycles each) with a single addition (~2 cycles each).
- * Enabled by opt_affine_texcol (-affinetex arg), default OFF. */
+ * Enabled by opt_affine_texcol (-affinetex arg), default OFF.
+ *
+ * AFFINETEX_MIDPOINT: splits each segment into two halves, computing the exact
+ * texture column at the midpoint and restarting linear stepping from there.
+ * Reduces the bow error by 4x (each half is half-width → quarter the error)
+ * at the cost of one extra FixedMul per segment (not per column).
+ * Set to 0 to revert to the original single-span linear interpolation. */
+#define AFFINETEX_MIDPOINT 1
 static fixed_t  rw_texcol;
 static fixed_t  rw_texstep;
+static fixed_t  rw_texcol2;   /* exact texcol at midpoint (start of 2nd half) */
+static fixed_t  rw_texstep2;  /* linear step for 2nd half */
+static int      rw_texmid_x;  /* screen column where 2nd-half step begins */
 extern int opt_affine_texcol;
 extern int opt_halfline;
 extern int opt_solidfloor;
@@ -250,8 +260,7 @@ R_RenderMaskedSegRange
 	    dc_x = l_dc_x;
 	    spryscale = l_spryscale;  /* write back — R_DrawMaskedColumn reads global */
 	    sprtopscreen = l_centeryfrac - FixedMul(dc_texturemid, l_spryscale);
-	    /* Linear interpolation replaces per-column 32-bit divide */
-	    dc_iscale = mpr_iscale;
+	    dc_iscale = 0xffffffffu / (unsigned)l_spryscale;
 
 	    // draw the texture
 	    col = (column_t *)(
@@ -260,7 +269,6 @@ R_RenderMaskedSegRange
 	    R_DrawMaskedColumn (col);
 	    l_maskedtexcol[l_dc_x] = MAXSHORT;
 	}
-	mpr_iscale += mpr_iscalestep;
 	l_spryscale += l_rw_scalestep;
     }
     } /* end local cache block */
@@ -451,6 +459,11 @@ void R_RenderSegLoop (void)
     fixed_t l_iscalestep = rw_iscalestep;
     fixed_t l_texcol    = rw_texcol;
     fixed_t l_texstep   = rw_texstep;
+#if AFFINETEX_MIDPOINT
+    int     l_texmid_x  = rw_texmid_x;
+    fixed_t l_texcol2   = rw_texcol2;
+    fixed_t l_texstep2  = rw_texstep2;
+#endif
 
     int last_light_index = -1;
 
@@ -480,6 +493,12 @@ void R_RenderSegLoop (void)
 	{
 	    /* Affine stepping (opt_affine_texcol) or original per-column FixedMul */
 	    if (l_affine) {
+#if AFFINETEX_MIDPOINT
+		if (x == l_texmid_x) {
+		    l_texcol  = l_texcol2;
+		    l_texstep = l_texstep2;
+		}
+#endif
 		texturecolumn = l_texcol >> FRACBITS;
 		l_texcol += l_texstep;
 	    } else {
@@ -496,9 +515,7 @@ void R_RenderSegLoop (void)
 		dc_colormap = l_walllights[index];
 	    }
 	    dc_x = x;
-	    /* Linear interpolation replaces per-column 32-bit divide */
-	    dc_iscale = l_iscale;
-	    l_iscale += l_iscalestep;
+	    dc_iscale = 0xffffffffu / (unsigned)l_scale;
 	}
 
 	// draw the wall tiers
@@ -945,16 +962,37 @@ R_StoreWallRange
 
 	/* Affine texture column stepping (opt_affine_texcol, -affinetex arg):
 	 * Precompute per-wall start/step to replace per-column FixedMul (~80 cycles)
-	 * with a single addition (~2 cycles). */
+	 * with a single addition (~2 cycles).
+	 * AFFINETEX_MIDPOINT: compute exact texcol at midpoint; two linear halves. */
 	if (opt_affine_texcol) {
-	    angle_t a0 = (rw_centerangle + xtoviewangle[rw_x]) >> ANGLETOFINESHIFT;
+	    int x0 = rw_x, x1 = rw_stopx - 1;
+	    angle_t a0 = (rw_centerangle + xtoviewangle[x0]) >> ANGLETOFINESHIFT;
 	    rw_texcol = rw_offset - FixedMul(finetangent[a0], rw_distance);
-	    if (rw_stopx > rw_x + 1) {
-		angle_t a1 = (rw_centerangle + xtoviewangle[rw_stopx - 1]) >> ANGLETOFINESHIFT;
+#if AFFINETEX_MIDPOINT
+	    if (x1 > x0) {
+		int xm = (x0 + x1) / 2;
+		angle_t am = (rw_centerangle + xtoviewangle[xm]) >> ANGLETOFINESHIFT;
+		fixed_t tm = rw_offset - FixedMul(finetangent[am], rw_distance);
+		angle_t a1 = (rw_centerangle + xtoviewangle[x1]) >> ANGLETOFINESHIFT;
 		fixed_t t1 = rw_offset - FixedMul(finetangent[a1], rw_distance);
-		rw_texstep = (t1 - rw_texcol) / (rw_stopx - 1 - rw_x);
+		rw_texstep  = (xm > x0) ? (tm - rw_texcol) / (xm - x0) : 0;
+		rw_texmid_x = xm;
+		rw_texcol2  = tm;
+		rw_texstep2 = (x1 > xm) ? (t1 - tm) / (x1 - xm) : 0;
+	    } else {
+		rw_texstep  = 0;
+		rw_texmid_x = x1 + 1; /* sentinel: never triggers in loop */
+		rw_texcol2  = rw_texcol;
+		rw_texstep2 = 0;
+	    }
+#else
+	    if (x1 > x0) {
+		angle_t a1 = (rw_centerangle + xtoviewangle[x1]) >> ANGLETOFINESHIFT;
+		fixed_t t1 = rw_offset - FixedMul(finetangent[a1], rw_distance);
+		rw_texstep = (t1 - rw_texcol) / (x1 - x0);
 	    } else
 		rw_texstep = 0;
+#endif
 	}
     }
 

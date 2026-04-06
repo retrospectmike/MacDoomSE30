@@ -10,6 +10,7 @@
 #include <OSUtils.h>
 #include <Processes.h>
 #include <Sound.h>
+#include <Gestalt.h>
 
 #include <stdlib.h>
 #include <setjmp.h>
@@ -20,6 +21,8 @@ extern jmp_buf doom_quit_jmp;
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <Files.h>
+
+/* MacModelID enum is in i_system.h */
 
 /*
  * Debug log — output goes to the log FILE only.
@@ -210,14 +213,27 @@ long I_GetMacTick(void)
 
 void I_Init(void)
 {
+    long machine_type = 0;
+    Gestalt(gestaltMachineType, &machine_type);
+    doom_log("I_Init: gestaltMachineType=%ld\n", machine_type);
+
     /* Phase 1A: Enable 68030 data cache if disabled.
      * The SE/30 ROM enables instruction cache but NOT data cache.
      * 68030 data cache is write-through (safe for DMA/framebuffer).
-     * HWPriv selector 2 = SwapDataCache(enable). Returns previous state. */
-    {
+     * HWPriv selector 2 = SwapDataCache(enable). Returns previous state.
+     *
+     * SE/30 ONLY: other 68030 ROMs (IIci, IIcx, etc.) map _HWPriv selector 2
+     * to a different routine.  On those machines the call writes unexpected
+     * values to CACR — sets FD (freeze data cache) and reserved bits — which
+     * produces a frozen, stale data cache.  When a Level 2 interrupt fires
+     * shortly after, the dispatch chain is read through the frozen cache and
+     * follows a corrupt function pointer → crash.  Register forensics at crash
+     * time: CACR=$2901 (FD=1, reserved bit 13 set), PC=$0001AD38 (system data
+     * area), SR=$2204 (supervisor, IPL=2), D0=A0=$0001ABDA (bad dispatch ptr).
+     * Confirmed on real Quadra 650 hardware and Snow/Mac IIci emulation. */
+    if (machine_type == kMacModelSE30) {
         long prev_d0 = 2;           /* selector: SwapDataCache */
         long prev_a0 = 1;           /* TRUE = enable */
-        /* Call _HWPriv trap; previous state returned in a0 */
         asm volatile (
             "move.l %1, %%d0\n\t"
             "move.l %2, %%a0\n\t"
@@ -227,7 +243,9 @@ void I_Init(void)
             : "g"(prev_d0), "g"(prev_a0)
             : "d0", "d1", "d2", "a0", "a1", "memory"
         );
-        doom_log("I_Init: SwapDataCache(TRUE) prev=%ld\r", prev_a0);
+        doom_log("I_Init: SwapDataCache(TRUE) prev=%ld\n", prev_a0);
+    } else {
+        doom_log("I_Init: skipping SwapDataCache on model %ld\n", machine_type);
     }
 
     I_InitSound();
@@ -242,23 +260,44 @@ void I_Init(void)
  */
 byte *I_ZoneBase(int *size)
 {
-    /* Try to get 48MB first, fall back to smaller sizes */
-    int try_sizes[] = { 48*1024*1024, 32*1024*1024, 16*1024*1024,
-                         8*1024*1024,  4*1024*1024,  2*1024*1024 };
+    /* Try to get 48MB first, fall back to smaller sizes.
+     *
+     * MaxMem guard: in 24-bit addressing mode (no Mode32), NewPtr() treats
+     * its size argument as 24 bits.  Sizes whose low 24 bits are zero —
+     * 48MB (0x03000000), 32MB (0x02000000), 16MB (0x01000000) — silently
+     * become NewPtr(0) which returns a valid non-NULL pointer to a zero-byte
+     * block.  Z_Init then uses that as a multi-MB zone → heap walk → crash.
+     * MaxMem() returns the largest contiguous free block (compacting first),
+     * correctly bounded by the addressing mode.  Skip any size that exceeds it. */
+    int try_sizes[] = //{ 48*1024*1024, 32*1024*1024, 16*1024*1024,
+                      { 8*1024*1024,  4*1024*1024,  
+                        2*1024*1024 };
+    Size   grow_size = 0;
+    Size   max_block = MaxMem(&grow_size);
     int i;
     byte *zone;
 
-    doom_log("I_ZoneBase: starting allocation attempts\n");
-    for (i = 0; i < 6; i++) {
+    doom_log("I_ZoneBase: MaxMem=%ld FreeMem=%ld\n", (long)max_block, FreeMem());
+    doom_log_flush();
+    for (i = 0; i < 3; i++) {
+        if ((long)try_sizes[i] > (long)max_block) {
+            doom_log("I_ZoneBase: skipping %d MB (> MaxMem)\n",
+                     try_sizes[i] / (1024*1024));
+            doom_log_flush();
+            continue;
+        }
         doom_log("I_ZoneBase: trying %d MB...\n", try_sizes[i] / (1024*1024));
+        doom_log_flush();
         zone = (byte *)NewPtr(try_sizes[i]);
         if (zone != NULL) {
             *size = try_sizes[i];
             doom_log("I_ZoneBase: allocated %d MB zone at %p\n",
                      try_sizes[i] / (1024*1024), zone);
+            doom_log_flush();
             return zone;
         }
         doom_log("I_ZoneBase: %d MB failed\n", try_sizes[i] / (1024*1024));
+        doom_log_flush();
     }
 
     /* Last resort: use malloc */
@@ -268,6 +307,7 @@ byte *I_ZoneBase(int *size)
         I_Error("I_ZoneBase: failed to allocate zone memory");
 
     doom_log("I_ZoneBase: malloc fallback, %d MB\n", *size / (1024*1024));
+    doom_log_flush();
     return zone;
 }
 

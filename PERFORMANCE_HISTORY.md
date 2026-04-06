@@ -10,6 +10,61 @@ Newest entries at top. Add new entries here after each significant change.
 
 ---
 
+## 2026-04-05 — dc_iscale Exact Divide + Affine Midpoint Subdivision (r_segs.c)
+**Emulator: Snow (debug build)**
+**Config: detailLevel=2 halfline=1 solidfloor=1 solidfloor_gray=4**
+**WAD: doom1.wad E1M1, timedemo pl20ben.lmp**
+
+Two correctness fixes with net-positive or neutral performance impact.
+
+### dc_iscale: exact per-column divide
+
+`dc_iscale` was linearly interpolated across wall segments using a pre-computed step.
+`1/scale` is not linear in screen x — the midpoint of the interpolated range has a bow
+error proportional to segment width. Visible as fisheye bowing on angled walls and as
+colorful noise in masked/transparent textures (wrong iscale → index advances past post
+pixel data into garbage).
+
+**Fix:** `dc_iscale = 0xffffffffu / (unsigned)l_scale` per column in both
+`R_RenderSegLoop` (walls) and `R_RenderMaskedSegRange` (masked). Linear step vars removed.
+
+| Metric | linear interp | exact divide | Delta |
+|--------|---------------|--------------|-------|
+| Mean FPS | 5.44 | **5.45** | **+0.2% (noise)** |
+| Segloop ticks (mean) | ~20.7 | ~21.7 | +4.8% |
+
+Segloop cost uptick is real but small — extra 32-bit divide per column. Wall renderer is
+not the bottleneck; overall FPS unchanged.
+
+### Affine texture column stepping: midpoint subdivision
+
+`opt_affine_texcol` replaces the exact `finetangent`-based `texturecolumn` with a linear
+step. `finetangent` is nonlinear in screen x → horizontal texture warp on angled walls and
+wrong column on masked textures (wrong transparency strip).
+
+**Fix:** `#define AFFINETEX_MIDPOINT 1` in r_segs.c. `R_StoreWallRange` now computes exact
+`texturecolumn` at x0, xm=(x0+x1)/2, and x1 (2 extra FixedMuls per segment). The loop
+resets `l_texcol`/`l_texstep` to the exact midpoint values when `x == l_texmid_x`. Error
+reduces 4× (each half-segment is half-width → ¼ bow error).
+
+Three-way comparison (all runs: same timedemo, debug build, affinetex ON except "OFF" col):
+
+| Metric | old linear affine | **midpoint affine** | affine OFF |
+|--------|-------------------|---------------------|------------|
+| Mean FPS | 5.44 | **5.46** | 5.33 |
+| Render ticks (mean) | 51.9 | 52.0 | 53.0 |
+| BSP ticks (mean) | 35.8 | 35.6 | 37.0 |
+| Segloop ticks (mean) | 22.2 | **21.7** | 22.9 |
+| cy/px (mean) | 44.2 | **43.1** | 45.7 |
+
+Midpoint affine is strictly better than old linear (+0.4% FPS, −2.3% segloop) and faster
+than affine OFF (+2.0% FPS). The 2 extra FixedMuls per segment are amortized across all
+columns in that segment; per-column overhead is negligible.
+
+**Verdict: keep exact dc_iscale divide; keep midpoint affine as default (opt_affine_texcol=1).**
+
+---
+
 ## 2026-03-31 — Zone Memory Usage Survey (doom1.wad)
 **Emulator: Snow (debug build)**
 **Zone heap: 8 MB (8192 KB)**

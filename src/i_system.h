@@ -108,6 +108,27 @@ void doom_log_flush (void);
 #endif
 void I_MacBeep (int n);      /* play n short system beeps (detail-level feedback) */
 
+/*
+ * Mac model IDs returned by Gestalt(gestaltMachineType, ...).
+ * Add entries here as we discover model-specific init paths.
+ * Gestalt values from Inside Macintosh: Overview, Appendix B.
+ */
+typedef enum {
+    kMacModelSE     =  5,   /* Mac SE      — 68000, no cache          */
+    kMacModelII     =  6,   /* Mac II      — 68020                    */
+    kMacModelIIx    =  7,   /* Mac IIx     — 68030                    */
+    kMacModelIIcx   =  8,   /* Mac IIcx    — 68030                    */
+    kMacModelSE30   =  9,   /* Mac SE/30   — 68030, primary target    */
+    kMacModelIIci   = 11,   /* Mac IIci    — 68030                    */
+    kMacModelIIfx   = 13,   /* Mac IIfx    — 68030                    */
+    kMacModelIIsi   = 18,   /* Mac IIsi    — 68030                    */
+    kMacModelLC     = 19,   /* Mac LC      — 68020                    */
+    kMacModelQ700   = 20,   /* Quadra 700  — 68040                    */
+    kMacModelQ900   = 21,   /* Quadra 900  — 68040                    */
+    kMacModelQ650   = 32,   /* Quadra 650  — 68040                    */
+    kMacModelQ610   = 53,   /* Quadra 610  — 68040                    */
+} MacModelID;
+
 
 #endif
 //-----------------------------------------------------------------------------
