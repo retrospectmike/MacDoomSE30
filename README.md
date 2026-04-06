@@ -78,6 +78,8 @@ To use a pwad:
   3. Don't forget that these WAD files target specific level(s) - and if that level isn't the first level (eg E1M1) then you'll need to IDCLEV your way to the correct level.  
 
 Release Notes
+- _Unreleased_
+  - 256 color support (8-bit color / grayscale)
 - 1.0.0
   - Initial public release
   - Fixed transparency rendering bug
