@@ -96,6 +96,7 @@ void Z_Init (void)
     int		size;
 
     mainzone = (memzone_t *)I_ZoneBase (&size);
+    doom_log("Out of I_ZoneBase!\r"); doom_log_flush();
     mainzone->size = size;
 
     // set the entire zone to one free block

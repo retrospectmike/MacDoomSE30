@@ -347,7 +347,7 @@ static pascal Boolean SplashFilterProc(DialogPtr dlg, EventRecord *event, short 
 }
 
 static char *mac_argv[8] = { "DoomSE30", "-playdemo", "pl20ben" };
-static WindowPtr bg_window = nil;  /* fullscreen black background window */
+WindowPtr bg_window = nil;  /* fullscreen black background window */
 
 /*
  * FatalConfigAlert — show a plain-text error screen and quit cleanly.
@@ -457,7 +457,7 @@ int main(void)
         Gestalt(gestaltMachineType,        &machine_type);
         Gestalt(gestaltAddressingModeAttr, &addr_attr);
         doom_log("main: machine=%ld addr_attr=%08lX\n", machine_type, addr_attr);
-        if (machine_type != kMacModelSE30 &&
+        if (false && machine_type != kMacModelSE30 &&
             !(addr_attr & (1L << gestalt32BitAddressing))) {
             doom_log("main: 24-bit mode on NuBus machine -- aborting\n");
             doom_log_flush();
@@ -643,17 +643,10 @@ int main(void)
         D_DoomMain();
 
     /* I_Quit longjmp'd here (or D_DoomMain returned) — tear down and exit cleanly */
-    doom_log("main: exit sequence start\r"); doom_log_flush();
     *(short *)0x0BAA = 20;
-    doom_log("main: DrawMenuBar\r"); doom_log_flush();
     DrawMenuBar();
-    doom_log("main: DrawMenuBar done\r"); doom_log_flush();
-    if (bg_window != nil) {
-        doom_log("main: DisposeWindow\r"); doom_log_flush();
+    if (bg_window != nil)
         DisposeWindow(bg_window);
-        doom_log("main: DisposeWindow done\r"); doom_log_flush();
-    }
-    doom_log("main: ExitToShell\r"); doom_log_flush();
     ExitToShell();
     return 0;
 }

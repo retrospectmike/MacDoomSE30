@@ -281,7 +281,7 @@ void D_Display (void)
 	return;                    // for comparative timing / profiling
 		
     redrawsbar = false;
-    
+
     // change the view size if needed
     if (setsizeneeded)
     {
@@ -315,7 +315,7 @@ void D_Display (void)
 
     if (gamestate == GS_LEVEL && gametic)
 	HU_Erase();
-    
+
     // do buffered drawing
     switch (gamestate)
     {
@@ -328,7 +328,9 @@ void D_Display (void)
 	    redrawsbar = true;
 	if (inhelpscreensstate && !inhelpscreens)
 	    redrawsbar = true;              // just put away the help screen
-	{ long _st = I_GetMacTick(); ST_Drawer (viewheight == 200, redrawsbar); prof_hud_st += I_GetMacTick() - _st; }
+	{ long _st = I_GetMacTick();
+	  ST_Drawer (viewheight == 200, redrawsbar);
+	  prof_hud_st += I_GetMacTick() - _st; }
 	fullscreen = viewheight == 200;
 	break;
 
@@ -347,7 +349,7 @@ void D_Display (void)
     
     // draw buffered stuff to screen
     I_UpdateNoBlit ();
-    
+
     // draw the view directly
     if (gamestate == GS_LEVEL && !automapactive && gametic)
     {
@@ -365,7 +367,7 @@ void D_Display (void)
 
     // clean up border stuff
     if (gamestate != oldgamestate && gamestate != GS_LEVEL)
-	I_SetPalette (W_CacheLumpName ("PLAYPAL",PU_CACHE));
+	I_SetPalette (W_CacheLumpName ("PLAYPAL",PU_CACHE));	
 
     // see if the border needs to be initially drawn
     // In 2x mode: viewwindowx=0/viewwindowy=0, so border corner patches would be
@@ -389,7 +391,6 @@ void D_Display (void)
 	    borderdrawcount--;
 	    { extern int border_needs_blit; border_needs_blit = 1; }
 	}
-
     }
 
     menuactivestate = menuactive;
@@ -407,7 +408,6 @@ void D_Display (void)
 	V_DrawPatchDirect(viewwindowx+(scaledviewwidth-68)/2,
 			  y,0,W_CacheLumpName ("M_PAUSE", PU_CACHE));
     }
-
 
     // menus go directly to the screen
     /* Redirect M_Drawer to menu_overlay_buf only when the menu is actually
@@ -439,7 +439,6 @@ void D_Display (void)
     }
     NetUpdate ();         // send out any new accumulation
 
-
     // normal update
     if (!wipe)
     {
@@ -448,7 +447,7 @@ void D_Display (void)
 	prof_blit += I_GetMacTick() - _bt;
 	return;
     }
-    
+
     // wipe update
     wipe_EndScreen(0, 0, SCREENWIDTH, SCREENHEIGHT);
 
@@ -459,7 +458,6 @@ void D_Display (void)
      * wipe_ScreenWipe has exclusive control over screens[0]/framebuffer. */
     extern boolean wipe_in_progress;
     wipe_in_progress = true;
-
     do
     {
 	do
@@ -504,14 +502,11 @@ void D_DoomLoop (void)
 	printf ("debug output to: %s\n",filename);
 	debugfile = fopen (filename,"w");
     }
-
     I_InitGraphics ();
-
     while (1)
     {
 	// frame syncronous IO operations
 	I_StartFrame ();
-
 	// process one or more tics
 	/* --- game logic --- */
 	{
@@ -556,13 +551,13 @@ void D_DoomLoop (void)
 	    D_Display ();
 	    prof_disp += I_GetMacTick() - _t;
 	}
-
 	ft_frames++;
 
 	/* Log real wall-clock FPS every 35 game tics.
 	 * elapsed = real 60Hz ticks in this window; realfps*10 avoids float.
 	 * All component values are 60Hz ticks accumulated over the window.
 	 * hud = D_Display minus render and blit (ST_Drawer, HU_Drawer, border). */
+
 	if (gametic - ft_last_tic >= 35)
 	{
 	    long elapsed = I_GetMacTick() - ft_wall_start;
@@ -1316,6 +1311,7 @@ void D_DoomMain (void)
      * Override whatever doom.cfg loaded — color mode always renders clean. */
     {
         extern int g_color_depth;
+		doom_log("g_color_depth == %d\r",g_color_depth); doom_log_flush();
         if (g_color_depth >= 8) {
             /* halfline, affinetex, solidfloor all have color renderer support — leave them.
              * scale2x has no color path; fog_scale is a mono depth-cull heuristic. */
@@ -1327,16 +1323,16 @@ void D_DoomMain (void)
     }
 
     printf ("Z_Init: Init zone memory allocation daemon. \n");
-    doom_log ("CHKPT: entering Z_Init\n");
+    doom_log ("CHKPT: entering Z_Init\n"); doom_log_flush();
     Z_Init ();
-    doom_log ("CHKPT: Z_Init done\n");
+    doom_log ("CHKPT: Z_Init done\n"); doom_log_flush();
 
     printf ("W_Init: Init WADfiles.\n");
-    doom_log ("CHKPT: entering W_Init\n");
+    doom_log ("CHKPT: entering W_Init\n"); doom_log_flush();
     W_InitMultipleFiles (wadfiles);
-    doom_log ("CHKPT: W_Init done\n");
+    doom_log ("CHKPT: W_Init done\n"); doom_log_flush();
     
-
+	doom_log("modifiedgame == %d\r", modifiedgame); doom_log_flush();
     // Check for -file in shareware
     if (modifiedgame)
     {
@@ -1368,7 +1364,7 @@ void D_DoomMain (void)
 	doom_log("Modified game detected (PWAD loaded)\r");
     }
 	
-
+	doom_log("CHKPT d_main.c before switch ( gamemode ). \r"); doom_log_flush();
     // Check and print which version is executed.
     switch ( gamemode )
     {
@@ -1395,31 +1391,38 @@ void D_DoomMain (void)
 	// Ouch.
 	break;
     }
-
+	doom_log("before M_Init\r"); doom_log_flush();
     printf ("M_Init: Init miscellaneous info.\n");
     M_Init ();
 
+	doom_log("before R_Init\r"); doom_log_flush();
     printf ("R_Init: Init DOOM refresh daemon - ");
     R_Init ();
 
+	doom_log("before P_Init\r"); doom_log_flush();
     printf ("\nP_Init: Init Playloop state.\n");
     P_Init ();
 
     printf ("I_Init: Setting up machine state.\n");
+	doom_log("before I_Init\r"); doom_log_flush();
     I_Init ();
 
+	doom_log("before D_CheckNetGame\r"); doom_log_flush();
     printf ("D_CheckNetGame: Checking network game status.\n");
     D_CheckNetGame ();
 
     printf ("S_Init: Setting up sound.\n");
+	doom_log("before d_main.c if (opt_sound) where opt_sound == %d\r", opt_sound); doom_log_flush();
     if (opt_sound)
         S_Init (snd_SfxVolume /* *8 */, snd_MusicVolume /* *8*/ );
     else
         I_InitSound();  /* no-op when opt_sound=0, but keeps shutdown symmetric */
 
+	doom_log("before HU_Init\r"); doom_log_flush();
     printf ("HU_Init: Setting up heads up display.\n");
     HU_Init ();
 
+	doom_log("before ST_Init\r"); doom_log_flush();
     printf ("ST_Init: Init status bar.\n");
     ST_Init ();
 
@@ -1442,7 +1445,8 @@ void D_DoomMain (void)
 	G_RecordDemo (myargv[p+1]);
 	autostart = true;
     }
-	
+	doom_log("done w G_RecordDemo block if\r"); doom_log_flush();
+
     p = M_CheckParm ("-playdemo");
     if (p && p < myargc-1)
     {
@@ -1450,6 +1454,7 @@ void D_DoomMain (void)
 	G_DeferedPlayDemo (myargv[p+1]);
 	D_DoomLoop ();  // never returns
     }
+	doom_log("done w M_CheckParm -playdemo if\r"); doom_log_flush();
 	
     p = M_CheckParm ("-timedemo");
     if (p && p < myargc-1)
@@ -1457,7 +1462,8 @@ void D_DoomMain (void)
 	G_TimeDemo (myargv[p+1]);
 	D_DoomLoop ();  // never returns
     }
-	
+	doom_log("done w M_CheckParm -timedemo if\r"); doom_log_flush();
+
     p = M_CheckParm ("-loadgame");
     if (p && p < myargc-1)
     {
@@ -1467,16 +1473,21 @@ void D_DoomMain (void)
 	    sprintf(file, SAVEGAMENAME"%c.dsg",myargv[p+1][0]);
 	G_LoadGame (file);
     }
+	doom_log("done w M_CheckParm -loadgame if\r"); doom_log_flush();
 	
 
     if ( gameaction != ga_loadgame )
     {
-	if (autostart || netgame)
-	    G_InitNew (startskill, startepisode, startmap);
-	else
-	    D_StartTitle ();                // start up intro loop
-
+	doom_log("start of if gameaction body\r"); doom_log_flush();
+	if (autostart || netgame){
+			doom_log("Bout to call G_InitNew\r"); doom_log_flush();
+			G_InitNew (startskill, startepisode, startmap);
+		}
+	else{
+			doom_log("about to call D_StartTitle\r"); doom_log_flush();
+			D_StartTitle ();                // start up intro loop
+		}
     }
-
+	doom_log("About to call D_DoomLooop ()\r"); doom_log_flush();
     D_DoomLoop ();  // never returns
 }

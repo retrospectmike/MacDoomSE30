@@ -5,9 +5,10 @@
 
 This is a port of [linuxdoom](https://github.com/id-Software/DOOM) to MacOS System 7 with the intention of playing on the 68030-based [Macintosh SE/30](https://en.wikipedia.org/wiki/Macintosh_SE/30).
 
-## System Requirements
-- Macintosh SE/30 (68030 processor)
-- System 7.5.x
+## Minimum System Requirements
+- Macintosh SE/30 (68030 processor) or better
+- 1-bit Black and White OR 256-color mode OR 256-grays
+- System 7.5
 - 3 MB of RAM
   - 3 MB is enough for all of Doom 1, 2, Plutonia, or TNT Evilution
   - Other WADs may vary
@@ -18,11 +19,6 @@ This is a port of [linuxdoom](https://github.com/id-Software/DOOM) to MacOS Syst
   - You'll have to provide one or more of these yourself, placed in the same dir as the application file
   - Custom WAD files (PWADs) need to go in the application's dir. too and be picked in the splash GUI
 
-Non-SE/30 machines:
-- If running on newer machines, you need to have 32-bit addressing 
-  - Most newer machines have 32-bit clean roms from the factory
-  - For now, it'll need Mode32 installed and 32-bit addressing turned on
-  - TODO: See if this is a bug or not
 
 ## Background
 ### Why?
@@ -78,6 +74,10 @@ To use a pwad:
   3. Don't forget that these WAD files target specific level(s) - and if that level isn't the first level (eg E1M1) then you'll need to IDCLEV your way to the correct level.  
 
 Release Notes
+- 1.1.0
+ - Support for 256-color mode (requires a color Mac)
+ - Support for non-SE/30 machines in black & white, 256-colors,  or 256-grays modes
+   - No full-screen option working yet
 - 1.0.0
   - Initial public release
   - Fixed transparency rendering bug

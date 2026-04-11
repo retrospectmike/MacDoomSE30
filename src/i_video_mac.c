@@ -12,6 +12,7 @@
 
 #include <QuickDraw.h>
 #include <Memory.h>
+#include <Gestalt.h>
 
 #include <stdlib.h>
 #include <string.h>
@@ -38,6 +39,17 @@ static byte *fb_color_base     = NULL;
 static int   fb_color_rowbytes = 0;
 static int   fb_color_xoff     = 0;
 static int   fb_color_yoff     = 0;
+
+/* CopyBits path for NuBus framebuffers (non-SE/30).
+ * On IIci/IIcx/Quadra the FB is at 0xf9xxxxxx (NuBus).  In 24-bit addressing
+ * mode the 68030 strips bits 24-31, so direct writes land in system heap → crash.
+ * CopyBits routes through the ROM slot manager → safe in any addressing mode.
+ * SE/30 FB is in main RAM (low address) → direct writes always safe. */
+static int    s_use_copybits = 0;
+static PixMap s_src_pm;        /* color: PixMap wrapping screens[0] for CopyBits */
+static BitMap s_offscreen_bm;  /* mono:  BitMap wrapping fb_offscreen_buf for CopyBits */
+
+extern WindowPtr bg_window;    /* fullscreen black window, created in i_main_mac.c */
 
 /* Grayscale palette: maps Doom's 256-color palette to 0-255 grayscale.
  * Non-static so r_draw.c can use it for direct 1-bit rendering.
@@ -470,9 +482,43 @@ void I_InitGraphics(void)
         if (!menu_overlay_buf)
             I_Error("I_InitGraphics: failed to allocate overlay buffer");
         memset(menu_overlay_buf, 0, SCREENWIDTH * SCREENHEIGHT);
+
+        /* Detect NuBus FB: non-SE/30 → use CopyBits instead of direct writes. */
+        {
+            long machine_type = 0;
+            Gestalt(gestaltMachineType, &machine_type);
+            s_use_copybits = (machine_type != kMacModelSE30);
+            doom_log("I_InitGraphics: machine=%ld s_use_copybits=%d\r",
+                     machine_type, s_use_copybits);
+        }
+        /* Source PixMap wrapping screens[0].  pmTable points to the device's
+         * own CLUT so ctSeeds always match after SetEntries → CopyBits does a
+         * direct index copy with no color-matching overhead. */
+        s_src_pm.baseAddr   = (Ptr)screens[0];
+        s_src_pm.rowBytes   = SCREENWIDTH | 0x8000; /* high bit = PixMap flag */
+        s_src_pm.bounds.top    = 0;
+        s_src_pm.bounds.left   = 0;
+        s_src_pm.bounds.bottom = SCREENHEIGHT;
+        s_src_pm.bounds.right  = SCREENWIDTH;
+        s_src_pm.pmVersion  = 0;
+        s_src_pm.packType   = 0;
+        s_src_pm.packSize   = 0;
+        s_src_pm.hRes       = 0x00480000; /* 72 dpi */
+        s_src_pm.vRes       = 0x00480000;
+        s_src_pm.pixelType  = 0; /* chunky */
+        s_src_pm.pixelSize  = 8;
+        s_src_pm.cmpCount   = 1;
+        s_src_pm.cmpSize    = 8;
+        s_src_pm.planeBytes = 0;
+        s_src_pm.pmReserved = 0;
+        s_src_pm.pmTable    = (*(*GetMainDevice())->gdPMap)->pmTable;
+
         /* No off-screen 1-bit buffer, no mono_colormaps, no Bayer dither.
          * fb_mono_base stays NULL → is_direct stays false → renderers always
-         * write to screens[0] (via 8-bit colfunc), which we then memcpy out. */
+         * write to screens[0] (via 8-bit colfunc), which we then blit out. */
+        /* Bring bg_window to front so CopyBits visRgn isn't clipped by console */
+        if (s_use_copybits && bg_window)
+            SelectWindow(bg_window);
         return;
     }
 
@@ -514,6 +560,22 @@ void I_InitGraphics(void)
             fb_mono_base = fb_offscreen_buf; /* redirect all rendering to off-screen */
             doom_log("I_InitGraphics: off-screen buffer %d bytes, real_fb=%p off_fb=%p\r",
                      fb_mono_rowbytes * fb_height, real_fb_base, (void *)fb_mono_base);
+
+            /* Detect NuBus FB for CopyBits flip. */
+            {
+                long machine_type = 0;
+                Gestalt(gestaltMachineType, &machine_type);
+                s_use_copybits = (machine_type != kMacModelSE30);
+                doom_log("I_InitGraphics: machine=%ld s_use_copybits=%d\r",
+                         machine_type, s_use_copybits);
+            }
+            /* BitMap wrapping full off-screen buffer for CopyBits flip. */
+            s_offscreen_bm.baseAddr = (Ptr)fb_offscreen_buf;
+            s_offscreen_bm.rowBytes = s_phys_rbytes;
+            s_offscreen_bm.bounds.top    = 0;
+            s_offscreen_bm.bounds.left   = 0;
+            s_offscreen_bm.bounds.bottom = fb_height;
+            s_offscreen_bm.bounds.right  = s_phys_rbytes * 8;
         }
 
         /* 2x pixel-scale mode: further redirect fb_mono_base to the compact
@@ -549,6 +611,10 @@ void I_InitGraphics(void)
      * touching the framebuffer entirely.  ShowCursor() in I_ShutdownGraphics
      * decrements it back when we exit. */
     HideCursor();
+
+    /* Bring bg_window to front so CopyBits visRgn isn't clipped by Retro68 console */
+    if (s_use_copybits && bg_window)
+        SelectWindow(bg_window);
 
     /* Allocate Doom's screen buffer: 320x200 8-bit */
     screens[0] = (byte *)malloc(SCREENWIDTH * SCREENHEIGHT);
@@ -757,24 +823,40 @@ void I_FinishUpdate(void)
     if (g_color_depth >= 8) {
         /* Color/grayscale fast path: the 8-bit renderers already wrote correct
          * palette indices into screens[0].  SetEntries mapped those indices to
-         * real RGB in the CLUT.  Just memcpy each row to the hardware FB.
-         * No dithering, no colormaps, no is_direct complexity. */
-        byte *src = screens[0];
-        int y;
-        for (y = 0; y < SCREENHEIGHT; y++)
-            memcpy(fb_color_base
-                   + (y + fb_color_yoff) * fb_color_rowbytes + fb_color_xoff,
-                   src + y * SCREENWIDTH, SCREENWIDTH);
-
+         * real RGB in the CLUT.
+         * s_use_copybits=1 (NuBus IIci/Quadra): CopyBits through ROM slot manager,
+         * safe in 24-bit mode.  Direct memcpy to 0xf9xxxxxx truncates to 24-bit
+         * and corrupts the system heap.
+         * s_use_copybits=0 (SE/30): FB is in main RAM, direct memcpy is safe. */
+        if (s_use_copybits) {
+            Rect srcRect, dstRect;
+            s_src_pm.baseAddr  = (Ptr)screens[0];
+            srcRect.top = 0;             srcRect.left  = 0;
+            srcRect.bottom = SCREENHEIGHT; srcRect.right = SCREENWIDTH;
+            dstRect.top    = fb_color_yoff;
+            dstRect.left   = fb_color_xoff;
+            dstRect.bottom = fb_color_yoff + SCREENHEIGHT;
+            dstRect.right  = fb_color_xoff + SCREENWIDTH;
+            SetPort(bg_window);
+            CopyBits((BitMap *)&s_src_pm,
+                     (BitMap *)*((CGrafPtr)bg_window)->portPixMap,
+                     &srcRect, &dstRect, srcCopy, NULL);
+        } else {
+            byte *src = screens[0];
+            int y;
+            for (y = 0; y < SCREENHEIGHT; y++) {
+                memcpy(fb_color_base
+                       + (y + fb_color_yoff) * fb_color_rowbytes + fb_color_xoff,
+                       src + y * SCREENWIDTH, SCREENWIDTH);
+            }
+        }
         return;
     }
 
-    /* Crash bisect: confirm IFU reached */
-    { extern boolean menuactive;
-      if (menuactive) { doom_log("IFU_START ma=1\r"); doom_log_flush(); } }
-
     /* Rebuild mono_colormaps at most once per frame. */
-    if (mono_dirty) { I_BuildMonoColormaps(); mono_dirty = 0; }
+    if (mono_dirty) {
+        I_BuildMonoColormaps(); mono_dirty = 0;
+    }
 
     byte *src = screens[0];
     /* xoff/yoff: physical screen centering for the 320×200 game area.
@@ -803,14 +885,6 @@ void I_FinishUpdate(void)
 
     /* Track direct/non-direct transitions for border cache logic. */
     static boolean last_direct = false;
-
-    /* Instrument: log every is_direct state change */
-    if (is_direct != last_direct) {
-        doom_log("IFU: is_direct %d->%d gs=%d ma=%d wipe=%d fb=%p\r",
-                 (int)last_direct, (int)is_direct,
-                 (int)gamestate, (int)menuactive,
-                 (int)wipe_in_progress, fb_mono_base);
-    }
 
     /* 2x mode: if the view layout changed (e.g. screenblocks changed), clear
      * fb_offscreen_buf and the real screen to black so stale pixels are gone. */
@@ -1013,11 +1087,6 @@ void I_FinishUpdate(void)
 
     /* Menu overlay: solid-white mask applied over the full screen.
      * Only runs when the menu is open (menuactive implies !is_direct). */
-    {   static boolean prev_ma_overlay = false;
-        if (menuactive != prev_ma_overlay)
-            doom_log("IFU: menu_overlay path %s (is_direct=%d)\r",
-                     menuactive ? "ENTER" : "EXIT", (int)is_direct);
-        prev_ma_overlay = menuactive; }
     if (menuactive && menu_overlay_buf) {
         /* Write menu overlay at physical offsets — FB_OUT is correct for both modes. */
         byte *overlay = menu_overlay_buf;
@@ -1030,34 +1099,32 @@ void I_FinishUpdate(void)
         }
     }
 
-    /* PROBE B: read back same bytes as PROBE A, after I_FinishUpdate processing.
-     * If different from PROBE A, I_FinishUpdate is clearing the view area. */
-    {
-        extern int detailshift;
-        static int probe_b_logged = 0;
-        /* Guard: only fire during actual direct-mode gameplay frame.
-         * Read same positions as PROBE_A to compare before/after IFU processing. */
-        if (!probe_b_logged && detailshift == 2 && fb_mono_base && is_direct) {
-            int cx0   = (viewwindowx + xoff) >> 3;
-            int cx14  = ((14<<2) + viewwindowx + xoff) >> 3;
-            int wall_y  = viewwindowy + viewheight/2 + yoff;
-            int floor_y = viewwindowy + viewheight - 2 + yoff;
-            unsigned char b0w  = ((unsigned char*)fb_mono_base)[wall_y  * fb_mono_rowbytes + cx0];
-            unsigned char b14w = ((unsigned char*)fb_mono_base)[wall_y  * fb_mono_rowbytes + cx14];
-            unsigned char b0f  = ((unsigned char*)fb_mono_base)[floor_y * fb_mono_rowbytes + cx0];
-            doom_log("PROBE_B: cx0_wall=0x%02X cx14_wall=0x%02X cx0_floor=0x%02X (wy=%d fy=%d cx0=%d cx14=%d)\r",
-                     b0w, b14w, b0f, wall_y, floor_y, cx0, cx14);
-            probe_b_logged = 1;
-        }
-    }
-
     /* Double-buffer flip: copy completed frame from fb_offscreen_buf → real screen.
      * Uses long* (MOVE.L) instead of memcpy to guarantee 32-bit bus transfers —
      * 4 bytes per bus cycle vs 1, ~4× faster on 68030's 32-bit data bus. */
     if (real_fb_base) {
         int flip_y;
-        if (opt_scale2x && (is_direct || menuactive)) {
-            /* 2x direct/menu flip: copy the expanded view rows (full width) + sbar rows. */
+        if (s_use_copybits) {
+            /* NuBus machine: CopyBits routes through ROM slot manager.
+             * Direct MOVE.L to real_fb_base (0xf9xxxxxx) truncates to 24-bit
+             * in 24-bit addressing mode → corrupts system heap. */
+            Rect blitRect;
+            SetPort(bg_window);
+            if (opt_scale2x && (is_direct || menuactive)) {
+                blitRect.top    = scale2x_dest_y0;
+                blitRect.left   = 0;
+                blitRect.bottom = scale2x_sbar_y0 + SBARHEIGHT;
+                blitRect.right  = s_phys_rbytes * 8;
+            } else {
+                blitRect.top    = s_phys_yoff;
+                blitRect.left   = s_phys_xoff_byte * 8;
+                blitRect.bottom = s_phys_yoff + SCREENHEIGHT;
+                blitRect.right  = s_phys_xoff_byte * 8 + SCREENWIDTH;
+            }
+            CopyBits(&s_offscreen_bm, &bg_window->portBits,
+                     &blitRect, &blitRect, srcCopy, NULL);
+        } else if (opt_scale2x && (is_direct || menuactive)) {
+            /* SE/30 2x direct/menu flip */
             int flip_end = scale2x_sbar_y0 + SBARHEIGHT;
             int longs_per_row = s_phys_rbytes >> 2;  /* 64/4 = 16 */
             for (flip_y = scale2x_dest_y0; flip_y < flip_end; flip_y++) {
@@ -1067,7 +1134,7 @@ void I_FinishUpdate(void)
                 for (i = 0; i < longs_per_row; i++) dst[i] = sr[i];
             }
         } else {
-            /* Normal flip: 40 bytes × 200 rows (320px game area, centred).
+            /* SE/30 normal flip: 40 bytes × 200 rows (320px game area, centred).
              * 40 bytes = 10 longs.  s_phys_xoff_byte (12) is 4-aligned.
              * Unrolled 10× MOVE.L to guarantee 32-bit bus transfers
              * (GCC converts loop-based copies back to memcpy). */

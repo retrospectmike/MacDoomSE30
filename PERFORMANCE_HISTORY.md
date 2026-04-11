@@ -10,6 +10,49 @@ Newest entries at top. Add new entries here after each significant change.
 
 ---
 
+## 2026-04-10 — NuBus CopyBits fix + instrumentation removal (first clean color run)
+**Emulator: Snow Mac IIcx (gestalt=8), release build (no doom_log overhead)**
+**Config: detailLevel=2 halfline=1 affinetex=1 solidfloor=1 solidfloor_gray=4**
+**WAD: doom.wad registered, timedemo pl20ben.lmp | 72 samples**
+
+### Changes
+
+- **NuBus crash fix** (`i_video_mac.c`): Direct `memcpy`/`MOVE.L` to `0xf9000a00`
+  (NuBus VRAM) in 24-bit addressing mode strips bits 24–31 → writes to `0x000a00`
+  (system heap) → crash at frame 24. Fixed by routing through `CopyBits` on
+  non-SE/30 machines (`s_use_copybits = machine_type != kMacModelSE30`). CopyBits
+  uses the ROM slot manager and is safe in any addressing mode.
+- **Instrumentation removed** (`d_main.c`, `i_video_mac.c`): 25+ `doom_log_flush()`
+  (FlushVol) calls per frame were adding ~110 ticks/window (~60% of all frame time)
+  on Snow's ExtFS-backed filesystem. Removed all step-marker doom_logs; FPS profiling
+  system retained.
+
+### Results
+
+| Metric | Prev color (w/ instrumentation) | **This run** | IIcx 1-bit (2026-04-06) |
+|--------|----------------------------------|--------------|--------------------------|
+| FPS mean | 1.50 | **6.90** | 6.77 |
+| FPS range | 1.4–1.6 | **2.2–11.6** | — |
+| render ticks (mean) | 49.0 | **45.72** | 44.8 |
+| blit ticks (mean) | 37.0 | **5.88** | 7.1 |
+| hud ticks (mean) | 114.4 | **6.17** | — |
+| sound ticks (mean) | 32.1 | **0.11** | — |
+
+render breakdown: setup=4.8 bsp=33.5 planes=0.3 masked=5.4
+
+**4.6× FPS improvement** from removing instrumentation overhead. The prior
+blit=37 and hud=114 were almost entirely `FlushVol` I/O inside the timed
+sections, not actual render/blit work.
+
+Color 8-bit (6.90 FPS) is statistically identical to 1-bit mono (6.77) — consistent
+with the 2026-04-06 parity result. Render is the bottleneck at ~65% of frame time in
+both modes.
+
+sound ≈ 0 in this run (vs 32 ticks with instrumentation) confirms the sound
+update timings in the previous color run were entirely instrumentation overhead.
+
+---
+
 ## 2026-04-06 — Color Renderer Parity (halfline + solidfloor + affinetex + QUAD)
 **Emulator: Snow Mac IIcx (gestalt=8), debug build**
 **Config: detailLevel=2 halfline=1 affinetex=1 solidfloor=1 solidfloor_gray=4**
