@@ -1,5 +1,6 @@
 # MacDoomSE/30
-<p style="text-align: center;"><img width="318" height="199" alt="image" src="https://github.com/user-attachments/assets/d7397cb2-80ae-482d-b90b-4949c053f18f" /> <img width="318" height="199" alt="image" src="https://github.com/user-attachments/assets/dec3a9fa-9ead-4a7d-b9cd-45a75337d49f" /> </p>
+<p style="text-align: center;"><img width="610" height="381" alt="image" src="https://github.com/user-attachments/assets/dadbf03c-6ef5-4995-80f6-b6ee47873afb" />
+ <img width="318" height="199" alt="image" src="https://github.com/user-attachments/assets/dec3a9fa-9ead-4a7d-b9cd-45a75337d49f" /> </p>
 
 <p style="text-align: center;"><img width="318" height="199" alt="image" src="https://github.com/user-attachments/assets/912629a9-fb42-455e-966b-2211e93ef164" /> <img width="318" height="199" alt="image" src="https://github.com/user-attachments/assets/f0bf7e90-7459-4059-9f11-c1b46cef0e96" /> </p>
 
