@@ -10,6 +10,44 @@ Newest entries at top. Add new entries here after each significant change.
 
 ---
 
+## 2026-04-10 — SE/30 mono vs IIcx color parity confirmed
+**Emulator: Snow Mac SE/30 (gestalt=9) + Snow Mac IIcx (gestalt=8), release build**
+**Config: detailLevel=2 halfline=1 affinetex=1 solidfloor=1 solidfloor_gray=4**
+**WAD: doom.wad registered, timedemo pl20ben.lmp | 71 samples (mono) / 72 samples (color)**
+
+Side-by-side of both Snow configurations at identical settings. Both machines are 16 MHz 68030.
+
+| Metric | Snow SE/30 mono | Snow IIcx color | Delta |
+|--------|-----------------|-----------------|-------|
+| machine | gestalt=9 | gestalt=8 | — |
+| depth | 1-bit mono | 8-bit color | — |
+| blit path | MOVE.L double-buf | CopyBits NuBus | — |
+| **FPS mean** | **6.74** | **6.90** | −2% |
+| FPS range | 2.0–14.4 | 2.2–11.6 | — |
+| logic (mean) | 17.77 | 17.74 | ≈0 |
+| render (mean) | 44.99 | 45.72 | +2% |
+| — setup | 6.6 | 4.8 | |
+| — bsp | 31.3 | 33.5 | |
+| — planes | 0.2 | 0.3 | |
+| — masked | 5.7 | 5.4 | |
+| **blit (mean)** | **10.23** | **5.88** | **−43%** |
+| hud (mean) | 6.27 | 6.17 | ≈0 |
+| sound (mean) | 0.08 | 0.11 | ≈0 |
+| cy/px (walls) | 54.0 | n/a | — |
+
+**FPS and render are identical within noise** — same clock speed, same renderer, same scene.
+Confirms the 2026-04-06 parity result with full profiling data from both machines.
+
+**Blit is the only material difference**: mono MOVE.L double-buffer (10.23 ticks mean)
+is costlier than color CopyBits (5.88 ticks). The mono blit variance is wide (1–26 ticks)
+because `is_direct` frames skip most of the flip; full-screen transitions (wipes, menus)
+push it to 26. Color always does a full CopyBits regardless of scene state.
+
+**cy/px=54** (mono only, walls) — 54 cycles per wall pixel at 16 MHz = 3.4 µs/pixel for
+the 1-bit packed-nibble column renderer. Color path does not track `prof_r_pixels`.
+
+---
+
 ## 2026-04-10 — NuBus CopyBits fix + instrumentation removal (first clean color run)
 **Emulator: Snow Mac IIcx (gestalt=8), release build (no doom_log overhead)**
 **Config: detailLevel=2 halfline=1 affinetex=1 solidfloor=1 solidfloor_gray=4**

@@ -48,6 +48,8 @@ static int   fb_color_yoff     = 0;
 static int    s_use_copybits = 0;
 static PixMap s_src_pm;        /* color: PixMap wrapping screens[0] for CopyBits */
 static BitMap s_offscreen_bm;  /* mono:  BitMap wrapping fb_offscreen_buf for CopyBits */
+static int    s_color_screen_w = 0;  /* physical color screen dimensions, set at init */
+static int    s_color_screen_h = 0;
 
 extern WindowPtr bg_window;    /* fullscreen black window, created in i_main_mac.c */
 
@@ -461,6 +463,8 @@ void I_InitGraphics(void)
         fb_color_rowbytes  = (*pm)->rowBytes & 0x3FFF; /* high bits are flags */
         fb_color_xoff      = (screen_w - SCREENWIDTH)  / 2;
         fb_color_yoff      = (screen_h - SCREENHEIGHT) / 2;
+        s_color_screen_w   = screen_w;
+        s_color_screen_h   = screen_h;
         doom_log("I_InitGraphics: color %dx%d rb=%d xoff=%d yoff=%d depth=%d\r",
                  screen_w, screen_h, fb_color_rowbytes,
                  fb_color_xoff, fb_color_yoff, g_color_depth);
@@ -828,6 +832,49 @@ void I_FinishUpdate(void)
          * safe in 24-bit mode.  Direct memcpy to 0xf9xxxxxx truncates to 24-bit
          * and corrupts the system heap.
          * s_use_copybits=0 (SE/30): FB is in main RAM, direct memcpy is safe. */
+        if (opt_scale2x) {
+            /* 2× pixel-scale color path.
+             * Always blit the full screens[0] (320×200) at 2× centred.
+             * 320×2=640, 200×2=400; on a 640×480 screen: 40px top/bottom margin. */
+            int vy0 = (s_color_screen_h - SCREENHEIGHT * 2) / 2;
+            int vx0 = (s_color_screen_w - SCREENWIDTH  * 2) / 2;
+
+            static int last_c2x_vy0 = -1;
+            if (vy0 != last_c2x_vy0) {
+                SetPort(bg_window);
+                FillRect(&bg_window->portRect, &qd.black);
+                last_c2x_vy0 = vy0;
+            }
+
+            if (s_use_copybits) {
+                Rect srcRect, dstRect;
+                s_src_pm.baseAddr = (Ptr)screens[0];
+                SetPort(bg_window);
+                srcRect.top = 0;              srcRect.left  = 0;
+                srcRect.bottom = SCREENHEIGHT; srcRect.right  = SCREENWIDTH;
+                dstRect.top    = vy0;                    dstRect.left  = vx0;
+                dstRect.bottom = vy0 + SCREENHEIGHT * 2; dstRect.right  = vx0 + SCREENWIDTH * 2;
+                CopyBits((BitMap *)&s_src_pm,
+                         (BitMap *)*((CGrafPtr)bg_window)->portPixMap,
+                         &srcRect, &dstRect, srcCopy, NULL);
+            } else {
+                byte *src = screens[0];
+                int fy;
+                for (fy = 0; fy < SCREENHEIGHT; fy++) {
+                    byte *sr = src + fy * SCREENWIDTH;
+                    byte *d0 = fb_color_base + (vy0+fy*2)   * fb_color_rowbytes + vx0;
+                    byte *d1 = fb_color_base + (vy0+fy*2+1) * fb_color_rowbytes + vx0;
+                    int fx;
+                    for (fx = 0; fx < SCREENWIDTH; fx++) {
+                        byte v = sr[fx];
+                        d0[fx*2] = d0[fx*2+1] = v;
+                        d1[fx*2] = d1[fx*2+1] = v;
+                    }
+                }
+            }
+            return;
+        }
+
         if (s_use_copybits) {
             Rect srcRect, dstRect;
             s_src_pm.baseAddr  = (Ptr)screens[0];

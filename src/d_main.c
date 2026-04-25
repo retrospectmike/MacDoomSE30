@@ -276,6 +276,8 @@ void D_Display (void)
     boolean			done;
     boolean			wipe;
     boolean			redrawsbar;
+    extern int			opt_scale2x;
+    extern int			g_color_depth;
 
     if (nodrawers)
 	return;                    // for comparative timing / profiling
@@ -370,10 +372,9 @@ void D_Display (void)
 	I_SetPalette (W_CacheLumpName ("PLAYPAL",PU_CACHE));	
 
     // see if the border needs to be initially drawn
-    // In 2x mode: viewwindowx=0/viewwindowy=0, so border corner patches would be
-    // drawn at negative coordinates → "exceeds LFB" console spam.  The border
-    // content in screens[0] is also never blitted in the 2x direct path, so skip.
-    if (gamestate == GS_LEVEL && oldgamestate != GS_LEVEL && !opt_scale2x)
+    // In mono 2x mode: viewwindowx=0/viewwindowy=0, border patches at negative coords.
+    // Color 2x: screens[0] is fully blitted, so border must be drawn into it as normal.
+    if (gamestate == GS_LEVEL && oldgamestate != GS_LEVEL && (!opt_scale2x || g_color_depth >= 8))
     {
 	viewactivestate = false;        // view was not active
 	R_FillBackScreen ();    // draw the pattern into the back screen
@@ -381,7 +382,7 @@ void D_Display (void)
     }
 
     // see if the border needs to be updated to the screen
-    if (gamestate == GS_LEVEL && !automapactive && scaledviewwidth != 320 && !opt_scale2x)
+    if (gamestate == GS_LEVEL && !automapactive && scaledviewwidth != 320 && (!opt_scale2x || g_color_depth >= 8))
     {
 	if (menuactive || menuactivestate || !viewactivestate)
 	    borderdrawcount = 3;
@@ -1314,8 +1315,7 @@ void D_DoomMain (void)
 		doom_log("g_color_depth == %d\r",g_color_depth); doom_log_flush();
         if (g_color_depth >= 8) {
             /* halfline, affinetex, solidfloor all have color renderer support — leave them.
-             * scale2x has no color path; fog_scale is a mono depth-cull heuristic. */
-            opt_scale2x = 0;
+             * fog_scale is a mono depth-cull heuristic with no color equivalent. */
             fog_scale   = 0;
             doom_log("D_DoomMain: color display (%d-bit), detailLevel=%d halfline=%d affinetex=%d solidfloor=%d\r",
                      g_color_depth, detailLevel, opt_halfline, opt_affine_texcol, opt_solidfloor);

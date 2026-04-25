@@ -1152,10 +1152,11 @@ void M_ChangeDetail(int choice)
 
 void M_SizeDisplay(int choice)
 {
-    /* In 2x pixel-scale mode, blocks=9+ would overflow the 512px screen at 2×.
-     * Cap screenSize at 5 (screenblocks=8, scaledviewwidth=256 → 512px at 2×). */
+    /* In 2x pixel-scale mode (mono only), blocks=9+ overflows fb_source_buf.
+     * Color scale2x uses screens[0] which is always 320×200, so no cap. */
     extern int opt_scale2x;
-    int maxSize = opt_scale2x ? 5 : 8;
+    extern int g_color_depth;
+    int maxSize = (opt_scale2x && g_color_depth < 8) ? 5 : 8;
 
     switch(choice)
     {

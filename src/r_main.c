@@ -576,12 +576,13 @@ void R_ExecuteSetViewSize (void)
     int		level;
     int		startmap;
     extern int  opt_scale2x;
+    extern int  g_color_depth;
 
     setsizeneeded = false;
 
-    /* 2x pixel-scale mode: blocks=9+ would expand to >512px at 2×.
-     * Clamp to blocks=8 (scaledviewwidth=256 → 512px at 2×, exact fill). */
-    if (opt_scale2x && setblocks > 8)
+    /* 2x pixel-scale mode (mono only): blocks=9+ would overflow fb_source_buf (4096B).
+     * Color scale2x uses screens[0] (320×200) so no cap needed. */
+    if (opt_scale2x && setblocks > 8 && g_color_depth < 8)
 	setblocks = 8;
 
     if (setblocks == 11)
@@ -680,11 +681,10 @@ void R_ExecuteSetViewSize (void)
 
     R_InitBuffer (scaledviewwidth, viewheight);
 
-    /* 2x pixel-scale mode: the source render buffer starts at (0,0) —
-     * no centering offset within it. Override the viewwindow position that
-     * R_InitBuffer computed (which centers in the logical 320×200 space),
-     * and update fb_mono_rowbytes to match the narrower source buffer stride. */
-    if (opt_scale2x)
+    /* Mono 2x: source buffer fb_source_buf is compact, view must start at (0,0).
+     * Color 2x: render target is screens[0] (320×200), view stays centered so
+     * border draws on all four sides and R_DrawViewBorder patches hit valid coords. */
+    if (opt_scale2x && g_color_depth < 8)
     {
 	extern int fb_mono_rowbytes;
 	viewwindowx = 0;
