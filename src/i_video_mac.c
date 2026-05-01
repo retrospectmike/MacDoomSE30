@@ -683,11 +683,24 @@ void I_SetPalette(byte *palette)
          * RGBColor channels are 16-bit (0-65535); multiply 8-bit values by 257
          * (= 0x101) to map 0→0 and 255→65535 exactly. */
         static ColorSpec cs[256];
+        extern int opt_xceed;
         for (i = 0; i < 256; i++) {
-            cs[i].value        = (INTEGER)i;
-            cs[i].rgb.red      = (unsigned short)palette[i*3+0] * 257u;
-            cs[i].rgb.green    = (unsigned short)palette[i*3+1] * 257u;
-            cs[i].rgb.blue     = (unsigned short)palette[i*3+2] * 257u;
+            int r = palette[i*3+0];
+            int g = palette[i*3+1];
+            int b = palette[i*3+2];
+            cs[i].value = (INTEGER)i;
+            if (opt_xceed) {
+                /* Xceed grayscale card uses only the blue CLUT channel.
+                 * Encode BT.601 luminance in blue; zero R and G. */
+                int lum = (r * 299 + g * 587 + b * 114) / 1000;
+                cs[i].rgb.red   = 0;
+                cs[i].rgb.green = 0;
+                cs[i].rgb.blue  = (unsigned short)lum * 257u;
+            } else {
+                cs[i].rgb.red   = (unsigned short)r * 257u;
+                cs[i].rgb.green = (unsigned short)g * 257u;
+                cs[i].rgb.blue  = (unsigned short)b * 257u;
+            }
         }
         SetEntries(0, 255, cs);
         return;
