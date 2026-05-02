@@ -253,6 +253,7 @@ static byte gamma_curve[256];
 /* colormaps is defined in r_data.c; lighttable_t = byte.
  * We reference it here to build mono_colormaps.           */
 extern byte *colormaps;
+extern int   opt_xceed;
 
 /* ---- Dither config helpers ---------------------------------------------- */
 
@@ -377,6 +378,12 @@ void I_RebuildDitherPalette(void)
     doom_log("I_RebuildDitherPalette: gp[64]=%d gp[128]=%d gp[192]=%d\r",
              grayscale_pal[64], grayscale_pal[128], grayscale_pal[192]);
     I_BuildMonoColormaps();
+    /* On the Xceed color path, gamma_curve is baked into the CLUT via I_SetPalette.
+     * Force an immediate CLUT reload by clearing palette_valid and calling directly. */
+    if (g_color_depth >= 8 && palette_valid) {
+        palette_valid = 0;
+        I_SetPalette(saved_palette);
+    }
 }
 
 /* dither params are now loaded/saved via doom.cfg (M_LoadDefaults/M_SaveDefaults).
@@ -520,6 +527,11 @@ void I_InitGraphics(void)
         /* No off-screen 1-bit buffer, no mono_colormaps, no Bayer dither.
          * fb_mono_base stays NULL → is_direct stays false → renderers always
          * write to screens[0] (via 8-bit colfunc), which we then blit out. */
+        /* Build gamma_curve now — the mono path builds it later in I_InitGraphics
+         * but the color path returns here.  Clear palette_valid so the next
+         * I_SetPalette reloads the CLUT with the correct gamma_curve values. */
+        I_BuildGammaCurve();
+        palette_valid = 0;
         /* Bring bg_window to front so CopyBits visRgn isn't clipped by console */
         if (s_use_copybits && bg_window)
             SelectWindow(bg_window);
@@ -683,23 +695,37 @@ void I_SetPalette(byte *palette)
          * RGBColor channels are 16-bit (0-65535); multiply 8-bit values by 257
          * (= 0x101) to map 0→0 and 255→65535 exactly. */
         static ColorSpec cs[256];
-        extern int opt_xceed;
         for (i = 0; i < 256; i++) {
             int r = palette[i*3+0];
             int g = palette[i*3+1];
             int b = palette[i*3+2];
             cs[i].value = (INTEGER)i;
             if (opt_xceed) {
-                /* Xceed grayscale card uses only the blue CLUT channel.
-                 * Encode BT.601 luminance in blue; zero R and G. */
+                /* Xceed: collapse to BT.601 luminance in blue channel only. */
                 int lum = (r * 299 + g * 587 + b * 114) / 1000;
+                if (dither_gwhite > dither_gblack)
+                    lum = lum < dither_gblack ? 0
+                        : lum > dither_gwhite ? 255
+                        : (lum - dither_gblack) * 255 / (dither_gwhite - dither_gblack);
+                else
+                    lum = lum >= dither_gblack ? 255 : 0;
                 cs[i].rgb.red   = 0;
                 cs[i].rgb.green = 0;
-                cs[i].rgb.blue  = (unsigned short)lum * 257u;
+                cs[i].rgb.blue  = (unsigned short)gamma_curve[lum] * 257u;
             } else {
-                cs[i].rgb.red   = (unsigned short)r * 257u;
-                cs[i].rgb.green = (unsigned short)g * 257u;
-                cs[i].rgb.blue  = (unsigned short)b * 257u;
+                /* Color path: apply black/white point stretch and gamma per channel. */
+                if (dither_gwhite > dither_gblack) {
+                    r = r < dither_gblack ? 0 : r > dither_gwhite ? 255 : (r - dither_gblack) * 255 / (dither_gwhite - dither_gblack);
+                    g = g < dither_gblack ? 0 : g > dither_gwhite ? 255 : (g - dither_gblack) * 255 / (dither_gwhite - dither_gblack);
+                    b = b < dither_gblack ? 0 : b > dither_gwhite ? 255 : (b - dither_gblack) * 255 / (dither_gwhite - dither_gblack);
+                } else {
+                    r = r >= dither_gblack ? 255 : 0;
+                    g = g >= dither_gblack ? 255 : 0;
+                    b = b >= dither_gblack ? 255 : 0;
+                }
+                cs[i].rgb.red   = (unsigned short)gamma_curve[r] * 257u;
+                cs[i].rgb.green = (unsigned short)gamma_curve[g] * 257u;
+                cs[i].rgb.blue  = (unsigned short)gamma_curve[b] * 257u;
             }
         }
         SetEntries(0, 255, cs);
