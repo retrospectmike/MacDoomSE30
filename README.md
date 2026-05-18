@@ -76,12 +76,13 @@ To use a pwad:
 
 Release Notes
 - 1.2.0
- - Support for Micron XCEED / Bolle grayscale upgrade hardware for SE/30
- - Gamma / white point / black point settings, incl. in-game adjustment, now works on non-black-and-whte mode (Color / Grayscale)
+  - Support for Micron XCEED / Bolle grayscale upgrade hardware for SE/30
+  - Full-screen (2x size) now works in Color mode
+  - Gamma / white point / black point settings, incl. in-game adjustment, now works on non-black-and-whte mode (Color / Grayscale)
 - 1.1.0
- - Support for 256-color mode (requires a color Mac)
- - Support for non-SE/30 machines in black & white, 256-colors,  or 256-grays modes
-   - No full-screen option working yet
+  - Support for 256-color mode (requires a color Mac)
+  - Support for non-SE/30 machines in black & white, 256-colors,  or 256-grays modes
+    - No full-screen option working yet
 - 1.0.0
   - Initial public release
   - Fixed transparency rendering bug
