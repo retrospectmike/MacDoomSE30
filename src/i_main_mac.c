@@ -35,7 +35,6 @@ extern int  opt_affine_texcol;
 extern int  opt_solidfloor;
 extern int  opt_scale2x;
 extern int  opt_sound;
-extern int  opt_xceed;
 extern int  fog_scale;
 extern int  solidfloor_gray;
 extern int  detailLevel;
@@ -219,7 +218,6 @@ static void apply_factory_defaults(void)
     fog_scale         = 10240;
     detailLevel       = 2;
     opt_scale2x       = 0;
-    opt_xceed         = 0;
     opt_sound         = 1;
     no_lighting       = 0;
     dither_gamma_x100 = 60;
@@ -242,7 +240,6 @@ static void populate_settings(DialogPtr dlg)
     dlg_set_popup(dlg, 30, detailLevel + 1);      /* Detail: 1=High, 2=Low, 3=Quad */
     dlg_set_check(dlg, 32, opt_sound);
     dlg_set_check(dlg, 33, s_timedemo);
-    dlg_set_check(dlg, 34, opt_xceed);
 }
 
 static void read_settings(DialogPtr dlg)
@@ -266,7 +263,6 @@ static void read_settings(DialogPtr dlg)
     detailLevel = dlg_get_popup(dlg, 30) - 1;
     opt_sound = dlg_get_check(dlg, 32);
     s_timedemo = dlg_get_check(dlg, 33);
-    opt_xceed = dlg_get_check(dlg, 34);
 }
 
 static void ShowSettingsDialog(void)
@@ -299,7 +295,7 @@ static void ShowSettingsDialog(void)
                 apply_factory_defaults();
                 populate_settings(dlg);
                 break;
-            case 15: case 16: case 17: case 18: case 19: case 32: case 33: case 34:  /* checkboxes */
+            case 15: case 16: case 17: case 18: case 19: case 32: case 33:  /* checkboxes */
                 dlg_toggle_check(dlg, itemHit);
                 break;
         }
@@ -399,7 +395,9 @@ void I_NoWadAlert(void)
     /* Clear loading text by repainting black */
     {
         Rect r = bg_window->portRect;
-        FillRect(&r, &qd.black);
+        RGBColor black_rgb = {0, 0, 0};
+        RGBForeColor(&black_rgb);
+        PaintRect(&r);
     }
     TextFont(systemFont);
     TextSize(12);
@@ -609,9 +607,11 @@ int main(void)
     if (bg_window != nil)
     {
         Rect local_r;
+        RGBColor black_rgb = {0, 0, 0};
         SetPort(bg_window);
         local_r = bg_window->portRect;
-        FillRect(&local_r, &qd.black);
+        RGBForeColor(&black_rgb);
+        PaintRect(&local_r);
         TextFont(systemFont);
         TextSize(12);
         TextFace(bold);

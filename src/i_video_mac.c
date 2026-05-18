@@ -253,7 +253,6 @@ static byte gamma_curve[256];
 /* colormaps is defined in r_data.c; lighttable_t = byte.
  * We reference it here to build mono_colormaps.           */
 extern byte *colormaps;
-extern int   opt_xceed;
 
 /* ---- Dither config helpers ---------------------------------------------- */
 
@@ -700,33 +699,19 @@ void I_SetPalette(byte *palette)
             int g = palette[i*3+1];
             int b = palette[i*3+2];
             cs[i].value = (INTEGER)i;
-            if (opt_xceed) {
-                /* Xceed: collapse to BT.601 luminance in blue channel only. */
-                int lum = (r * 299 + g * 587 + b * 114) / 1000;
-                if (dither_gwhite > dither_gblack)
-                    lum = lum < dither_gblack ? 0
-                        : lum > dither_gwhite ? 255
-                        : (lum - dither_gblack) * 255 / (dither_gwhite - dither_gblack);
-                else
-                    lum = lum >= dither_gblack ? 255 : 0;
-                cs[i].rgb.red   = 0;
-                cs[i].rgb.green = 0;
-                cs[i].rgb.blue  = (unsigned short)gamma_curve[lum] * 257u;
+            /* Color path: apply black/white point stretch and gamma per channel. */
+            if (dither_gwhite > dither_gblack) {
+                r = r < dither_gblack ? 0 : r > dither_gwhite ? 255 : (r - dither_gblack) * 255 / (dither_gwhite - dither_gblack);
+                g = g < dither_gblack ? 0 : g > dither_gwhite ? 255 : (g - dither_gblack) * 255 / (dither_gwhite - dither_gblack);
+                b = b < dither_gblack ? 0 : b > dither_gwhite ? 255 : (b - dither_gblack) * 255 / (dither_gwhite - dither_gblack);
             } else {
-                /* Color path: apply black/white point stretch and gamma per channel. */
-                if (dither_gwhite > dither_gblack) {
-                    r = r < dither_gblack ? 0 : r > dither_gwhite ? 255 : (r - dither_gblack) * 255 / (dither_gwhite - dither_gblack);
-                    g = g < dither_gblack ? 0 : g > dither_gwhite ? 255 : (g - dither_gblack) * 255 / (dither_gwhite - dither_gblack);
-                    b = b < dither_gblack ? 0 : b > dither_gwhite ? 255 : (b - dither_gblack) * 255 / (dither_gwhite - dither_gblack);
-                } else {
-                    r = r >= dither_gblack ? 255 : 0;
-                    g = g >= dither_gblack ? 255 : 0;
-                    b = b >= dither_gblack ? 255 : 0;
-                }
-                cs[i].rgb.red   = (unsigned short)gamma_curve[r] * 257u;
-                cs[i].rgb.green = (unsigned short)gamma_curve[g] * 257u;
-                cs[i].rgb.blue  = (unsigned short)gamma_curve[b] * 257u;
+                r = r >= dither_gblack ? 255 : 0;
+                g = g >= dither_gblack ? 255 : 0;
+                b = b >= dither_gblack ? 255 : 0;
             }
+            cs[i].rgb.red   = (unsigned short)gamma_curve[r] * 257u;
+            cs[i].rgb.green = (unsigned short)gamma_curve[g] * 257u;
+            cs[i].rgb.blue  = (unsigned short)gamma_curve[b] * 257u;
         }
         SetEntries(0, 255, cs);
         return;

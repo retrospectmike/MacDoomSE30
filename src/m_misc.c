@@ -212,7 +212,6 @@ extern int	fog_scale;
 extern int	opt_scale2x;
 extern int	opt_directfb;
 extern int	opt_sound;
-extern int	opt_xceed;
 extern int	monster_throttle_dist;
 extern int	monster_sight_dist;
 
@@ -312,8 +311,6 @@ default_t	defaults[] =
     /* 2x pixel-scale mode: render at half resolution, expand to fill 512px Mac screen.
      * Set to 1 to enable. Caps effective screenblocks at 8. Default OFF. */
     {"scale2x",         &opt_scale2x,       0},
-    /* xceed_gray: Micron Xceed grayscale card support — stuffs luminance into blue CLUT channel only. Default OFF. */
-    {"xceed_gray",      &opt_xceed,         0},
     /* directfb: skip double-buffer, render direct to screen (may tear) */
     {"directfb",        &opt_directfb,      0},
     /* Sound effects: 0=off (silent, zero overhead), 1=on (Sound Manager SFX) */

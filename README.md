@@ -75,6 +75,9 @@ To use a pwad:
   3. Don't forget that these WAD files target specific level(s) - and if that level isn't the first level (eg E1M1) then you'll need to IDCLEV your way to the correct level.  
 
 Release Notes
+- 1.2.0
+ - Support for Micron XCEED / Bolle grayscale upgrade hardware for SE/30
+ - Gamma / white point / black point settings, incl. in-game adjustment, now works on non-black-and-whte mode (Color / Grayscale)
 - 1.1.0
  - Support for 256-color mode (requires a color Mac)
  - Support for non-SE/30 machines in black & white, 256-colors,  or 256-grays modes

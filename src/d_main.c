@@ -109,7 +109,6 @@ int opt_halfline      = 0;
 int opt_affine_texcol = 0;
 int opt_solidfloor    = 0;
 int opt_directfb      = 0;   /* 1 = skip double-buffer, render direct to screen */
-int opt_xceed         = 0;   /* 1 = Micron Xceed grayscale card: stuff luminance into blue CLUT channel only */
 /* Gray fill level for solid floor/ceiling: 0=white 1=25% 2=50% 3=~88% 4=black */
 int solidfloor_gray   = 0;
 /* Distance fog threshold (fixed_t scale units; 0=off).
@@ -1092,7 +1091,6 @@ void D_DoomMain (void)
     if (M_CheckParm ("-affinetex")) opt_affine_texcol = 1;
     if (M_CheckParm ("-scale2x"))   opt_scale2x       = 1;
     if (M_CheckParm ("-directfb"))  opt_directfb      = 1;
-    if (M_CheckParm ("-xceed"))     opt_xceed         = 1;
     if (M_CheckParm ("-sound"))    opt_sound         = 1;
     if (M_CheckParm ("-mapsurvey")) { map_survey = 1; autostart = true; }
     if (M_CheckParm ("-altdeath"))
